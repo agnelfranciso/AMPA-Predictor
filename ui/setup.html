@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Setup & Help &mdash; World Cup 2026</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; font-size: 15px; background: #fff; color: #222; margin: 0; line-height: 1.6; }
+    header { background: #1a3a5c; color: #fff; padding: 16px 24px; text-align: center; }
+    header h1 { margin: 0; font-size: 1.5rem; font-weight: 700; }
+    nav { background: #f0f4f8; border-bottom: 1px solid #cdd5e0; padding: 7px 24px; display: flex; gap: 14px; align-items: center; justify-content: center; flex-wrap: wrap; font-size: 0.88rem; }
+    nav a { color: #1a3a5c; text-decoration: none; font-weight: 500; }
+    nav a:hover { text-decoration: underline; }
+    nav .sep { color: #aaa; }
+    main { padding: 30px 24px; max-width: 800px; margin: 0 auto; }
+    
+    #error-banner { display: none; background: #fff3cd; border: 1px solid #ffeeba; color: #856404; padding: 15px 20px; border-radius: 6px; margin-bottom: 30px; font-weight: 500; }
+    #error-banner h2 { margin-top: 0; color: #856404; font-size: 1.2rem; border-bottom: none; margin-bottom: 8px; padding-bottom: 0; }
+    
+    .setup-box { border: 1px solid #e1e4e8; border-radius: 6px; padding: 32px; background: #fafbfc; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+    .setup-box h2 { color: #1a3a5c; margin-top: 0; font-size: 1.4rem; border-bottom: 2px solid #1a3a5c; padding-bottom: 8px; margin-bottom: 20px; }
+    .setup-box h3 { color: #24292e; font-size: 1.15rem; margin-top: 25px; margin-bottom: 12px; }
+    
+    .step-list { list-style: none; padding: 0; margin: 0; }
+    .step-list li { display: flex; margin-bottom: 24px; }
+    .step-num { flex-shrink: 0; width: 28px; height: 28px; background: #1a3a5c; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; margin-right: 16px; margin-top: 2px; }
+    .step-content { flex-grow: 1; }
+    .step-content p { margin: 0 0 10px 0; }
+    
+    code { background: #e8ecf1; padding: 3px 6px; border-radius: 4px; font-size: 0.9rem; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; color: #d63384; }
+    pre { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 6px; overflow-x: auto; font-size: 0.9rem; border: 1px solid #333; margin: 10px 0; line-height: 1.4; }
+    
+    .btn { display: inline-block; background: #1a3a5c; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 4px; font-weight: 600; margin-top: 15px; }
+    .btn:hover { background: #112740; }
+    .note { background: #e7f3fe; border-left: 4px solid #2196f3; padding: 12px 16px; margin: 16px 0; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Prediction Engine Setup</h1>
+  </header>
+  <nav>
+    <a href="index.html">Home</a><span class="sep">|</span>
+    <a href="bracket.html">Full Bracket</a><span class="sep">|</span>
+    <a href="teams.html">All Teams</a><span class="sep">|</span>
+    <a href="runs.html">Past Runs</a>
+  </nav>
+  <main>
+    
+    <div id="error-banner">
+      <h2>⚠️ Simulation Data Missing</h2>
+      <p>The frontend tried to load the prediction data, but it hasn't been generated yet (or was deleted). Please follow the complete setup guide below to run the engine and generate the data.</p>
+    </div>
+
+    <div class="setup-box">
+      <h2 id="page-title">How to Run the Engine</h2>
+      <p>The AMPI is powered by the Agnel Match Prediction Engine (AMPE). You must run the engine to generate the data that powers this website.</p>
+      
+      <h3>Prerequisites</h3>
+      <p>Before you begin, ensure you have <strong>Python 3.10 or higher</strong> installed on your system. You can verify this by opening a terminal and typing <code>python --version</code>.</p>
+
+      <h3>Step-by-Step Setup</h3>
+      <ul class="step-list">
+        <li>
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <p><strong>Locate ampe.bat</strong></p>
+            <p>Open the <code>fifa-predictor</code> folder in your file explorer.</p>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <p><strong>Run the Engine Manager</strong></p>
+            <p>Double-click the <code>ampe.bat</code> file (or run it from your terminal). This powerful script will automatically:</p>
+            <ul>
+              <li>Create a virtual environment</li>
+              <li>Install all required dependencies quietly</li>
+              <li>Launch a beautiful command-line menu</li>
+            </ul>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <p><strong>Generate Predictions</strong></p>
+            <p>From the AMPE menu, press <code>1</code> and hit Enter to <strong>Run Prediction Engine</strong>.</p>
+            <div class="note">
+              <strong>Note:</strong> This process can take anywhere from 10 to 40 seconds depending on your machine and internet connection. Do not close the window until it finishes.
+            </div>
+          </div>
+        </li>
+        <li>
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <p><strong>Success!</strong></p>
+            <p>Once the engine finishes, it will save the snapshot and return to the menu. You can then press <code>2</code> to launch the AMPI UI!</p>
+          </div>
+        </li>
+      </ul>
+      
+      <div style="text-align: center; margin-top: 30px;">
+        <a href="index.html" class="btn">Return to Application</a>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // Detect if we were redirected here because of missing data
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('error') === 'missing_data') {
+      document.getElementById('error-banner').style.display = 'block';
+      document.getElementById('page-title').innerText = 'System Setup Required';
+    }
+  </script>
+</body>
+</html>

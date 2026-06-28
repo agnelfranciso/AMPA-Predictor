@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Team Profile &mdash; World Cup 2026</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; font-size: 15px; background: #fff; color: #111; margin: 0; }
+    header { background: #1a3a5c; color: #fff; padding: 16px 24px; display: flex; align-items: center; gap: 14px; }
+    header h1 { margin: 0; font-size: 1.5rem; font-weight: 800; }
+    nav { background: #f0f4f8; border-bottom: 1px solid #cdd5e0; padding: 7px 24px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 0.88rem; }
+    nav a { color: #1a3a5c; text-decoration: none; font-weight: 500; }
+    nav a:hover { text-decoration: underline; }
+    nav .sep { color: #aaa; }
+    main { padding: 18px 24px; max-width: 1050px; }
+    h2 { font-size: 1.05rem; margin: 26px 0 10px; border-bottom: 2px solid #1a3a5c; padding-bottom: 4px; color: #1a3a5c; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 8px; font-size: 0.86rem; }
+    table th { background: #1a3a5c; color: #fff; text-align: left; padding: 7px 10px; font-weight: 600; white-space: nowrap; }
+    table th.c, table td.c { text-align: center; }
+    table td { padding: 6px 10px; border: 1px solid #dde3ea; vertical-align: middle; }
+    table tbody tr:nth-child(even) td { background: #f7f9fc; }
+    table tbody tr:hover td { background: #eef2f7; }
+    .row-win td  { background: #f0faf0 !important; }
+    .row-draw td { background: #fffdf0 !important; }
+    .row-loss td { background: #fdf0f0 !important; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.8rem; font-weight: 700; }
+    .badge-w { background: #d4edda; color: #155724; }
+    .badge-d { background: #fff3cd; color: #856404; }
+    .badge-l { background: #f8d7da; color: #721c24; }
+    .stat-boxes { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
+    .stat-box { border: 1px solid #cdd5e0; background: #f7f9fc; padding: 10px 14px; border-radius: 4px; min-width: 100px; text-align: center; }
+    .stat-box .val { font-size: 1.4rem; font-weight: 800; color: #1a3a5c; }
+    .stat-box .lbl { font-size: 0.72rem; color: #555; margin-top: 2px; }
+    .match-win td  { background: #f0faf0 !important; }
+    .match-loss td { background: #fdf0f0 !important; }
+    .run-select-bar { background: #fffbe6; border: 1px solid #ffe58f; padding: 6px 12px; font-size: 0.83rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .run-select-bar label { font-weight: 600; color: #614700; }
+    .run-select-bar select { font-size: 0.83rem; padding: 2px 6px; }
+    img.flag { vertical-align: middle; margin-right: 5px; }
+    a { color: #1a3a5c; } a:hover { text-decoration: underline; }
+    .section { margin-bottom: 28px; }
+    .setup-box { max-width:640px;margin:40px auto;border:2px solid #1a3a5c;border-radius:6px;padding:28px 32px; }
+    .setup-box h2 { color:#1a3a5c;margin-top:0; }
+    .setup-box code { background:#f4f4f4;padding:2px 7px;border-radius:3px;font-size:0.88rem; }
+  </style>
+</head>
+<body>
+<script>
+(function(){
+  var run = new URLSearchParams(window.location.search).get('run');
+  var src = run ? ('../data/outputs/data_'+run+'.js') : '../data/data.js';
+  document.write('<scr'+'ipt src="'+src+'"><\/scr'+'ipt>');
+  document.write('<scr'+'ipt src="../data/runs_index.js"><\/scr'+'ipt>');
+})();
+</script>
+<script>
+var FLAGS = {
+  "Algeria":"../output/algeria.png","Argentina":"../output/argentina.png","Australia":"../output/australia.png",
+  "Austria":"../output/austria.png","Belgium":"../output/belgium.png","Bosnia and Herzegovina":"../output/bosnia_and_herzegovina.png",
+  "Brazil":"../output/brazil.png","Cabo Verde":"../output/cape_verde.png","Canada":"../output/canada.png",
+  "Colombia":"../output/colombia.png","Congo DR":"../output/democratic_republic_of_the_congo.png","Côte d'Ivoire":"../output/ivory_coast.png",
+  "Croatia":"../output/croatia.png","Ecuador":"../output/ecuador.png","Egypt":"../output/egypt.png",
+  "England":"../output/england.png","France":"../output/france.png","Germany":"../output/germany.png",
+  "Ghana":"../output/ghana.png","Japan":"../output/japan.png","Mexico":"../output/mexico.png",
+  "Morocco":"../output/morocco.png","Netherlands":"../output/netherlands.png","Norway":"../output/norway.png",
+  "Paraguay":"../output/paraguay.png","Portugal":"../output/portugal.png","Senegal":"../output/senegal.png",
+  "South Africa":"../output/south_africa.png","Spain":"../output/spain.png","Sweden":"../output/sweden.png",
+  "Switzerland":"../output/switzerland.png","USA":"../output/united_states.png"
+};
+function flag(n,s){var src=FLAGS[n];if(!src)return '';return '<img src="'+src+'" height="'+(s||18)+'" class="flag" alt="'+n+'">';}
+function tl(n){return '<a href="team.html?name='+encodeURIComponent(n)+'&run='+(new URLSearchParams(window.location.search).get('run')||'')+'">'+flag(n)+n+'</a>';}
+var curRun = new URLSearchParams(window.location.search).get('run')||'';
+
+function renderRunSelector() {
+  var runs = (typeof RUNS_INDEX !== 'undefined') ? RUNS_INDEX : [];
+  if (!runs.length) return '';
+  var opts = '<option value="">Latest</option>';
+  runs.forEach(function(r){ opts += '<option value="'+r.timestamp+'"'+(r.timestamp===curRun?' selected':'')+'>'+r.generated_at+' — '+r.champion+(r.live_scores_used?' [Live]':' [Pred]')+'</option>'; });
+  return '<div class="run-select-bar"><label>View Run:</label><select onchange="window.location.search=\'?run=\'+this.value">'+opts+'</select> <a href="runs.html">All Runs</a></div>';
+}
+
+if (typeof PREDICTOR_DATA === 'undefined') {
+  window.location.replace('setup.html?error=missing_data');
+} else {
+  var D = PREDICTOR_DATA;
+  var name = new URLSearchParams(window.location.search).get('name');
+  var p = D.teams[name];
+
+  if (!p) {
+    document.write('<header><h1>Team Not Found</h1></header>');
+    document.write('<nav><a href="index.html">Home</a></nav>');
+    document.write('<main><p>Team not found: '+name+'</p></main>');
+  } else {
+    var gs=p.goal_stats||{}, tr=p.tourn_record||{};
+
+    document.write('<header>');
+    if (FLAGS[p.display]) document.write('<img src="'+FLAGS[p.display]+'" height="52" style="border:1px solid rgba(255,255,255,0.2);" alt="">');
+    document.write('<h1>'+p.display+'</h1></header>');
+    document.write('<nav><a href="index.html'+(curRun?'?run='+curRun:'')+'">Home</a><span class="sep">|</span><a href="bracket.html'+(curRun?'?run='+curRun:'')+'">Full Bracket</a><span class="sep">|</span><a href="teams.html'+(curRun?'?run='+curRun:'')+'">All Teams</a><span class="sep">|</span><a href="runs.html">Past Runs</a></nav>');
+    document.write(renderRunSelector());
+    document.write('<main>');
+
+    // STAT BOXES
+    document.write('<section class="section"><h2>Rating Overview</h2>');
+    document.write('<div class="stat-boxes">');
+    [['Composite', p.composite, '/100'],['Elo', p.elo,''],['Form', p.form_score+'%',''],['Attack', p.attack,'idx'],['Defense', p.defense,'idx (lower=better)']].forEach(function(b){
+      document.write('<div class="stat-box"><div class="val">'+b[1]+'</div><div class="lbl">'+b[0]+(b[2]?' '+b[2]:'')+'</div></div>');
+    });
+    document.write('</div><br>');
+    document.write('<table><thead><tr><th>Metric</th><th>Value</th><th>Notes</th></tr></thead><tbody>');
+    [
+      ['Composite Rating /100','<strong>'+p.composite+'</strong>','Elo (35%) + Attack (20%) + Defense (20%) + Form (15%) + Tournament (10%)'],
+      ['Elo Rating', p.elo,'Computed from all historical internationals since 1872'],
+      ['Form Score', p.form_score+'%','Time-weighted last '+((p.form_results||[]).length)+' games (exponential decay)'],
+      ['Attack Index', p.attack, '&gt;1.0 = above average scorer globally'],
+      ['Defense Index', p.defense, '&lt;1.0 = below average conceder (lower = better)'],
+      ['Avg Goals Scored (wtd, 6yr)', p.avg_gf,''],
+      ['Avg Goals Conceded (wtd, 6yr)', p.avg_ga,''],
+    ].forEach(function(r,i){
+      document.write('<tr><td><strong>'+r[0]+'</strong></td><td>'+r[1]+'</td><td style="font-size:0.81rem;color:#555">'+r[2]+'</td></tr>');
+    });
+    document.write('</tbody></table></section>');
+
+    // STRENGTHS & WEAKNESSES
+    document.write('<section class="section"><h2>Strengths &amp; Weaknesses</h2>');
+    document.write('<table><thead><tr><th>Strengths</th><th>Weaknesses</th></tr></thead><tbody>');
+    var S=p.strengths||[], W=p.weaknesses||[];
+    for(var i=0;i<Math.max(S.length,W.length);i++){
+      document.write('<tr><td style="color:#155724">'+(S[i]||'')+'</td><td style="color:#721c24">'+(W[i]||'')+'</td></tr>');
+    }
+    document.write('</tbody></table></section>');
+
+    // GOAL STATS
+    document.write('<section class="section"><h2>Goal Statistics (Last 20 Matches)</h2>');
+    document.write('<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>');
+    [
+      ['Avg Goals Scored (weighted, 6yr)',   p.avg_gf],
+      ['Avg Goals Conceded (weighted, 6yr)', p.avg_ga],
+      ['Avg Goals Scored (last 20, simple)', gs.avg_gf],
+      ['Avg Goals Conceded (last 20, simple)',gs.avg_ga],
+      ['Clean Sheets', (gs.clean_sheets||0)+' / '+(gs.n||0)+' games ('+(gs.clean_sheet_pct||0)+'%)'],
+      ['Both Teams Score (BTTS)', (gs.btts_pct||0)+'%'],
+    ].forEach(function(r,i){
+      document.write('<tr><td><strong>'+r[0]+'</strong></td><td>'+r[1]+'</td></tr>');
+    });
+    document.write('</tbody></table></section>');
+
+    // TOURNAMENT RECORD
+    document.write('<section class="section"><h2>Major Tournament Record (Last 10 Years)</h2>');
+    if (!tr.matches) {
+      document.write('<p>No major tournament data.</p>');
+    } else {
+      var wr = ((tr.wins+0.5*tr.draws)/tr.matches*100).toFixed(1);
+      document.write('<table><thead><tr><th class="c">Matches</th><th class="c">Wins</th><th class="c">Draws</th><th class="c">Losses</th><th class="c">GF</th><th class="c">GA</th><th class="c">Win Rate</th></tr></thead>');
+      document.write('<tbody><tr><td class="c">'+tr.matches+'</td><td class="c"><strong>'+tr.wins+'</strong></td><td class="c">'+tr.draws+'</td><td class="c">'+tr.losses+'</td><td class="c">'+tr.gf+'</td><td class="c">'+tr.ga+'</td><td class="c"><strong>'+wr+'%</strong></td></tr></tbody></table>');
+    }
+    document.write('</section>');
+
+    // FORM
+    document.write('<section class="section"><h2>Recent Results (Last '+(p.form_results||[]).length+')</h2>');
+    document.write('<table><thead><tr><th>#</th><th>Date</th><th>Result</th><th class="c">Score</th><th>Opponent</th><th>Tournament</th></tr></thead><tbody>');
+    (p.form_results||[]).forEach(function(r,i){
+      var cls=r.result==='W'?'row-win':(r.result==='L'?'row-loss':'row-draw');
+      document.write('<tr class="'+cls+'"><td class="c">'+(i+1)+'</td><td>'+r.date+'</td>');
+      document.write('<td><span class="badge badge-'+r.result.toLowerCase()+'">'+r.result+'</span></td>');
+      document.write('<td class="c"><strong>'+r.gf+' &ndash; '+r.gc+'</strong></td>');
+      document.write('<td>'+flag(r.opponent)+r.opponent+'</td>');
+      document.write('<td style="font-size:0.8rem">'+(r.tournament||'').substring(0,50)+'</td></tr>');
+    });
+    document.write('</tbody></table></section>');
+
+    // PREDICTED TOURNAMENT MATCHES
+    document.write('<section class="section"><h2>Predicted Matches in This Tournament</h2>');
+    document.write('<table><thead><tr><th>Round</th><th>Opponent</th><th class="c">Score</th><th>Winner</th><th class="c">Win%</th><th class="c">ET%</th><th class="c">Status</th><th class="c">Detail</th></tr></thead><tbody>');
+    D.rounds.forEach(function(round){
+      round.matches.forEach(function(m){
+        if (m.team1===p.display || m.team2===p.display) {
+          var isT1=m.team1===p.display;
+          var opp=isT1?m.team2:m.team1;
+          var winPct=isT1?m.prob_t1_win:m.prob_t2_win;
+          var won=m.winner===p.display;
+          var dispScore=m.is_played?m.real_score:m.predicted_score;
+          document.write('<tr class="'+(won?'match-win':'match-loss')+'">');
+          document.write('<td>'+round.round+'</td>');
+          document.write('<td>'+tl(opp)+'</td>');
+          document.write('<td class="c"><strong>'+dispScore+'</strong></td>');
+          document.write('<td><strong>'+flag(m.winner)+m.winner+'</strong></td>');
+          document.write('<td class="c">'+winPct+'%</td>');
+          document.write('<td class="c">'+m.prob_draw+'%</td>');
+          document.write('<td class="c">'+(m.is_played?'<span class="badge badge-w">PLAYED</span>':'<span class="badge badge-d">PRED</span>')+'</td>');
+          document.write('<td class="c"><a href="match.html?id='+encodeURIComponent(m.match_id)+'&run='+curRun+'">View</a></td>');
+          document.write('</tr>');
+        }
+      });
+    });
+    document.write('</tbody></table></section>');
+    document.write('</main>');
+  }
+  document.write('<footer style="text-align:center; padding: 24px; font-size: 0.85rem; border-top: 1px solid #cdd5e0; margin-top: 40px; color: #666;"><a href="setup.html" style="color: #666; text-decoration: underline;">Setup / Help</a></footer>');
+}
+</script>
+</body>
+</html>

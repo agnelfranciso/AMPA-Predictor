@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AMPI - Bracket</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; font-size: 15px; background: #fff; color: #111; margin: 0; }
+    header { background: #1a3a5c; color: #fff; padding: 16px 24px; }
+    header h1 { margin: 0; font-size: 1.35rem; font-weight: 700; }
+    header p  { margin: 4px 0 0; font-size: 0.82rem; opacity: 0.75; }
+    nav { background: #f0f4f8; border-bottom: 1px solid #cdd5e0; padding: 7px 24px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 0.88rem; }
+    nav a { color: #1a3a5c; text-decoration: none; font-weight: 500; }
+    nav a:hover { text-decoration: underline; }
+    nav .sep { color: #aaa; }
+    main { padding: 18px 24px; max-width: 1400px; }
+    h2 { font-size: 1.1rem; margin: 26px 0 10px; border-bottom: 2px solid #1a3a5c; padding-bottom: 4px; color: #1a3a5c; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 12px; font-size: 0.86rem; }
+    table th { background: #1a3a5c; color: #fff; text-align: left; padding: 7px 10px; font-weight: 600; white-space: nowrap; }
+    table th.c, table td.c { text-align: center; }
+    table td { padding: 6px 10px; border: 1px solid #dde3ea; vertical-align: middle; }
+    table tbody tr:nth-child(even) td { background: #f7f9fc; }
+    table tbody tr:hover td { background: #eef2f7; }
+    .winner-cell { font-weight: 700; color: #155724; }
+    .played-badge { display:inline-block;padding:1px 6px;background:#d4edda;color:#155724;border-radius:3px;font-size:0.75rem;font-weight:700; }
+    .pred-badge   { display:inline-block;padding:1px 6px;background:#fff3cd;color:#856404;border-radius:3px;font-size:0.75rem;font-weight:700; }
+    .run-select-bar { background: #fffbe6; border: 1px solid #ffe58f; padding: 6px 12px; font-size: 0.83rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .run-select-bar label { font-weight: 600; color: #614700; }
+    .run-select-bar select { font-size: 0.83rem; padding: 2px 6px; }
+    .champ-box { border: 2px solid #1a3a5c; background: #f0f4f8; padding: 12px 18px; display: inline-block; margin: 10px 0 18px; border-radius: 4px; }
+    .champ-box .lbl { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: #555; }
+    .champ-box .nm  { font-size: 1.35rem; font-weight: 800; color: #1a3a5c; display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+    img.flag { vertical-align: middle; margin-right: 5px; }
+    a { color: #1a3a5c; } a:hover { text-decoration: underline; }
+    .team-winner a { font-weight: 700; }
+    .setup-box { max-width:640px;margin:40px auto;border:2px solid #1a3a5c;border-radius:6px;padding:28px 32px; }
+    .setup-box h2 { color:#1a3a5c;margin-top:0; }
+    .setup-box code { background:#f4f4f4;padding:2px 7px;border-radius:3px;font-size:0.88rem; }
+  </style>
+</head>
+<body>
+<script>
+(function(){
+  var run = new URLSearchParams(window.location.search).get('run');
+  var src = run ? ('../data/outputs/data_'+run+'.js') : '../data/data.js';
+  document.write('<scr'+'ipt src="'+src+'"><\/scr'+'ipt>');
+  document.write('<scr'+'ipt src="../data/runs_index.js"><\/scr'+'ipt>');
+})();
+</script>
+<script>
+var FLAGS = {
+  "Algeria":"../output/algeria.png","Argentina":"../output/argentina.png","Australia":"../output/australia.png",
+  "Austria":"../output/austria.png","Belgium":"../output/belgium.png","Bosnia and Herzegovina":"../output/bosnia_and_herzegovina.png",
+  "Brazil":"../output/brazil.png","Cabo Verde":"../output/cape_verde.png","Canada":"../output/canada.png",
+  "Colombia":"../output/colombia.png","Congo DR":"../output/democratic_republic_of_the_congo.png","Côte d'Ivoire":"../output/ivory_coast.png",
+  "Croatia":"../output/croatia.png","Ecuador":"../output/ecuador.png","Egypt":"../output/egypt.png",
+  "England":"../output/england.png","France":"../output/france.png","Germany":"../output/germany.png",
+  "Ghana":"../output/ghana.png","Japan":"../output/japan.png","Mexico":"../output/mexico.png",
+  "Morocco":"../output/morocco.png","Netherlands":"../output/netherlands.png","Norway":"../output/norway.png",
+  "Paraguay":"../output/paraguay.png","Portugal":"../output/portugal.png","Senegal":"../output/senegal.png",
+  "South Africa":"../output/south_africa.png","Spain":"../output/spain.png","Sweden":"../output/sweden.png",
+  "Switzerland":"../output/switzerland.png","USA":"../output/united_states.png"
+};
+function flag(n,s){var src=FLAGS[n];if(!src)return '';return '<img src="'+src+'" height="'+(s||18)+'" class="flag" alt="'+n+'">';}
+var curRun = new URLSearchParams(window.location.search).get('run')||'';
+function tl(n){return '<a href="team.html?name='+encodeURIComponent(n)+'&run='+curRun+'">'+flag(n)+n+'</a>';}
+
+function renderRunSelector() {
+  var runs = (typeof RUNS_INDEX !== 'undefined') ? RUNS_INDEX : [];
+  if (!runs.length) return '';
+  var opts = '<option value="">Latest</option>';
+  runs.forEach(function(r){ opts += '<option value="'+r.timestamp+'"'+(r.timestamp===curRun?' selected':'')+'>'+r.generated_at+' — '+r.champion+(r.live_scores_used?' [Live]':' [Pred]')+'</option>'; });
+  return '<div class="run-select-bar"><label>View Run:</label><select onchange="window.location.search=\'?run=\'+this.value">'+opts+'</select> <a href="runs.html">All Runs</a></div>';
+}
+
+if (typeof PREDICTOR_DATA === 'undefined') {
+  window.location.replace('setup.html?error=missing_data');
+} else {
+  var D = PREDICTOR_DATA;
+  document.write('<header><h1>AMPI Bracket &mdash; Ro32 to Final</h1><p>Predicted Champion: '+D.meta.champion+'</p></header>');
+  document.write('<nav><a href="index.html'+(curRun?'?run='+curRun:'')+'">Home</a><span class="sep">|</span><a href="bracket.html">Full Bracket</a><span class="sep">|</span><a href="teams.html'+(curRun?'?run='+curRun:'')+'">All Teams</a><span class="sep">|</span><a href="runs.html">Past Runs</a></nav>');
+  document.write(renderRunSelector());
+  document.write('<main>');
+  document.write('<div class="champ-box"><div class="lbl">Predicted World Champion</div><div class="nm">'+flag(D.meta.champion,28)+D.meta.champion+'</div></div>');
+
+  D.rounds.forEach(function(round){
+    document.write('<h2>'+round.round+'</h2>');
+    document.write('<table><thead><tr>');
+    document.write('<th>#</th><th>Team 1</th><th class="c">ELO</th><th class="c">Rating</th>');
+    document.write('<th class="c">Score</th><th>Team 2</th><th class="c">ELO</th><th class="c">Rating</th>');
+    document.write('<th>Winner</th><th class="c">T1%</th><th class="c">ET%</th><th class="c">T2%</th>');
+    document.write('<th class="c">xG1</th><th class="c">xG2</th><th class="c">Status</th><th class="c">Detail</th>');
+    document.write('</tr></thead><tbody>');
+    round.matches.forEach(function(m,i){
+      var t1p=m.t1_profile||{}, t2p=m.t2_profile||{};
+      var t1w=m.winner===m.team1;
+      document.write('<tr>');
+      document.write('<td class="c">'+(i+1)+'</td>');
+      document.write('<td class="'+(t1w?'team-winner':'')+'">'+tl(m.team1)+'</td>');
+      document.write('<td class="c">'+(t1p.elo||m.elo_t1||'')+'</td>');
+      document.write('<td class="c">'+(t1p.composite||'')+'</td>');
+      if (m.is_played) {
+        document.write('<td class="c"><strong>'+m.real_score+'</strong></td>');
+      } else {
+        document.write('<td class="c"><strong>'+m.predicted_score+'</strong></td>');
+      }
+      document.write('<td class="'+(t1w?'':'team-winner')+'">'+tl(m.team2)+'</td>');
+      document.write('<td class="c">'+(t2p.elo||m.elo_t2||'')+'</td>');
+      document.write('<td class="c">'+(t2p.composite||'')+'</td>');
+      document.write('<td class="winner-cell">'+flag(m.winner)+m.winner+'</td>');
+      document.write('<td class="c">'+m.prob_t1_win+'%</td>');
+      document.write('<td class="c">'+m.prob_draw+'%</td>');
+      document.write('<td class="c">'+m.prob_t2_win+'%</td>');
+      document.write('<td class="c">'+m.xg1+'</td>');
+      document.write('<td class="c">'+m.xg2+'</td>');
+      document.write('<td class="c">'+(m.is_played?'<span class="played-badge">PLAYED</span>':'<span class="pred-badge">PRED</span>')+'</td>');
+      document.write('<td class="c"><a href="match.html?id='+encodeURIComponent(m.match_id)+'&run='+curRun+'">View</a></td>');
+      document.write('</tr>');
+    });
+    document.write('</tbody></table>');
+  });
+  document.write('</main>');
+  document.write('<footer style="text-align:center; padding: 24px; font-size: 0.85rem; border-top: 1px solid #cdd5e0; margin-top: 40px; color: #666;"><a href="setup.html" style="color: #666; text-decoration: underline;">Setup / Help</a></footer>');
+}
+</script>
+</body>
+</html>
