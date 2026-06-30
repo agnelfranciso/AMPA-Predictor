@@ -46,17 +46,17 @@
 </script>
 <script>
 var FLAGS = {
-  "Algeria":"../output/algeria.png","Argentina":"../output/argentina.png","Australia":"../output/australia.png",
-  "Austria":"../output/austria.png","Belgium":"../output/belgium.png","Bosnia and Herzegovina":"../output/bosnia_and_herzegovina.png",
-  "Brazil":"../output/brazil.png","Cabo Verde":"../output/cape_verde.png","Canada":"../output/canada.png",
-  "Colombia":"../output/colombia.png","Congo DR":"../output/democratic_republic_of_the_congo.png","Côte d'Ivoire":"../output/ivory_coast.png",
-  "Croatia":"../output/croatia.png","Ecuador":"../output/ecuador.png","Egypt":"../output/egypt.png",
-  "England":"../output/england.png","France":"../output/france.png","Germany":"../output/germany.png",
-  "Ghana":"../output/ghana.png","Japan":"../output/japan.png","Mexico":"../output/mexico.png",
-  "Morocco":"../output/morocco.png","Netherlands":"../output/netherlands.png","Norway":"../output/norway.png",
-  "Paraguay":"../output/paraguay.png","Portugal":"../output/portugal.png","Senegal":"../output/senegal.png",
-  "South Africa":"../output/south_africa.png","Spain":"../output/spain.png","Sweden":"../output/sweden.png",
-  "Switzerland":"../output/switzerland.png","USA":"../output/united_states.png"
+  "Algeria":"flags/algeria.png","Argentina":"flags/argentina.png","Australia":"flags/australia.png",
+  "Austria":"flags/austria.png","Belgium":"flags/belgium.png","Bosnia and Herzegovina":"flags/bosnia_and_herzegovina.png",
+  "Brazil":"flags/brazil.png","Cabo Verde":"flags/cape_verde.png","Canada":"flags/canada.png",
+  "Colombia":"flags/colombia.png","Congo DR":"flags/democratic_republic_of_the_congo.png","Côte d'Ivoire":"flags/ivory_coast.png",
+  "Croatia":"flags/croatia.png","Ecuador":"flags/ecuador.png","Egypt":"flags/egypt.png",
+  "England":"flags/england.png","France":"flags/france.png","Germany":"flags/germany.png",
+  "Ghana":"flags/ghana.png","Japan":"flags/japan.png","Mexico":"flags/mexico.png",
+  "Morocco":"flags/morocco.png","Netherlands":"flags/netherlands.png","Norway":"flags/norway.png",
+  "Paraguay":"flags/paraguay.png","Portugal":"flags/portugal.png","Senegal":"flags/senegal.png",
+  "South Africa":"flags/south_africa.png","Spain":"flags/spain.png","Sweden":"flags/sweden.png",
+  "Switzerland":"flags/switzerland.png","USA":"flags/united_states.png"
 };
 function flag(n,s){var src=FLAGS[n];if(!src)return '';return '<img src="'+src+'" height="'+(s||18)+'" class="flag" alt="'+n+'">';}
 var curRun = new URLSearchParams(window.location.search).get('run')||'';
