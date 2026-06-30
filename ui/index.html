@@ -35,6 +35,7 @@
     .run-select-bar select { font-size: 0.83rem; padding: 2px 6px; }
     img.flag { vertical-align: middle; margin-right: 5px; }
     a { color: #1a3a5c; } a:hover { text-decoration: underline; }
+    .outdated-warning { background: #fff2f0; border-bottom: 1px solid #ffccc7; color: #ff4d4f; padding: 10px 24px; font-weight: bold; font-size: 0.88rem; display: flex; align-items: center; gap: 8px; }
     /* setup instructions */
     .setup-box { max-width:680px; margin:40px auto; border:2px solid #1a3a5c; border-radius:6px; padding:28px 32px; }
     .setup-box h2 { color:#1a3a5c; margin-top:0; }
@@ -48,7 +49,7 @@
 <script>
 (function(){
   var run = new URLSearchParams(window.location.search).get('run');
-  var src = run ? ('../data/outputs/data_'+run+'.js') : '../data/data.js';
+  var src = run ? ('../data/outputs/data_'+run+'.js') : ('../data/data.js?t=' + Date.now());
   document.write('<scr'+'ipt src="'+src+'"><\/scr'+'ipt>');
   document.write('<scr'+'ipt src="../data/runs_index.js"><\/scr'+'ipt>');
 })();
@@ -93,8 +94,38 @@ if (typeof PREDICTOR_DATA === 'undefined') {
   document.write('<a href="index.html">Home</a><span class="sep">|</span>');
   document.write('<a href="bracket.html">Full Bracket</a><span class="sep">|</span>');
   document.write('<a href="teams.html">All Teams</a><span class="sep">|</span>');
-  document.write('<a href="runs.html">Past Runs</a>');
+  document.write('<a href="runs.html">Past Runs</a><span class="sep">|</span>');
+  document.write('<a href="accuracy.html">Accuracy</a>');
   document.write('</nav>');
+
+  // Check if engine needs updating (data is outdated)
+  if (D.rounds) {
+    var earliestUnplayed = null;
+    D.rounds.forEach(function(round) {
+      round.matches.forEach(function(m) {
+        if (!m.is_played && m.kickoff) {
+          var kDate = new Date(m.kickoff);
+          if (!isNaN(kDate.getTime())) {
+            if (!earliestUnplayed || kDate < earliestUnplayed) {
+              earliestUnplayed = kDate;
+            }
+          }
+        }
+      });
+    });
+
+    if (earliestUnplayed) {
+      var now = new Date();
+      var threeHoursMatchTime = 3 * 60 * 60 * 1000;
+      var thresholdTime = new Date(earliestUnplayed.getTime() + threeHoursMatchTime);
+      var genDate = new Date(D.meta.generated_at.replace(' ', 'T'));
+
+      if (now > thresholdTime && genDate < thresholdTime) {
+        document.write('<div class="outdated-warning">&#x26A0;&#xFE0F; Predictions may be outdated! A scheduled match may have kicked off. Please run <code>ampe.bat</code> in the terminal to update the engine with the latest live scores.</div>');
+      }
+    }
+  }
+
   document.write(renderRunSelector());
   document.write('<main>');
 
@@ -118,9 +149,28 @@ if (typeof PREDICTOR_DATA === 'undefined') {
       document.write('<tr>');
       document.write('<td>'+tl(m.team1)+'</td>');
       if (m.is_played) {
-        document.write('<td class="c"><strong>'+m.real_score+'</strong></td>');
+        var s = m.real_score;
+        var p = s;
+        if (s && s.indexOf(' (') !== -1) {
+          var pts = s.split(' (');
+          p = '<strong>'+pts[0]+'</strong><br><small style="color:#666; font-size:0.75rem; white-space:nowrap;">(' + pts[1] + '</small>';
+        } else if (s && s.indexOf(' AET') !== -1) {
+          var pts = s.split(' AET');
+          p = '<strong>'+pts[0]+'</strong><br><small style="color:#666; font-size:0.75rem;">AET</small>';
+        } else {
+          p = '<strong>'+s+'</strong>';
+        }
+        document.write('<td class="c" style="line-height:1.2;">'+p+'</td>');
       } else {
-        document.write('<td class="c"><strong>'+m.predicted_score+'</strong></td>');
+        var s = m.predicted_score;
+        var p = s;
+        if (s && s.indexOf(' (') !== -1) {
+          var pts = s.split(' (');
+          p = '<strong>'+pts[0]+'</strong><br><small style="color:#666; font-size:0.75rem; white-space:nowrap;">(' + pts[1] + '</small>';
+        } else {
+          p = '<strong>'+s+'</strong>';
+        }
+        document.write('<td class="c" style="line-height:1.2;">'+p+'</td>');
       }
       document.write('<td>'+tl(m.team2)+'</td>');
       document.write('<td class="winner-cell">'+flag(m.winner)+m.winner+'</td>');

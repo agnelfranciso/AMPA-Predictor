@@ -43,6 +43,7 @@ fifa-predictor/
 │   ├── runs.html
 │   ├── team.html
 │   ├── teams.html
+│   ├── accuracy.html
 │   └── setup.html
 └── data/                    # The "Database"
     ├── data.js

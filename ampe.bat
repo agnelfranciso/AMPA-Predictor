@@ -58,7 +58,10 @@ goto MENU
 :LAUNCH_UI
 cls
 echo Launching Agnel Match Prediction Interface (AMPI)...
-start ui\index.html
+echo Starting local web server on port 8001...
+start "AMPI Web Server" cmd /k "python -m http.server 8001"
+timeout /t 2 >nul
+start http://localhost:8001/ui/index.html
 goto MENU
 
 :VIEW_SAVES

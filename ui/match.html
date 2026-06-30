@@ -43,6 +43,7 @@
     .run-select-bar select { font-size: 0.83rem; padding: 2px 6px; }
     img.flag { vertical-align: middle; margin-right: 5px; }
     a { color: #1a3a5c; } a:hover { text-decoration: underline; }
+    .outdated-warning { background: #fff2f0; border-bottom: 1px solid #ffccc7; color: #ff4d4f; padding: 10px 24px; font-weight: bold; font-size: 0.88rem; display: flex; align-items: center; gap: 8px; }
     .section { margin-bottom: 28px; }
     .setup-box { max-width:640px;margin:40px auto;border:2px solid #1a3a5c;border-radius:6px;padding:28px 32px; }
     .setup-box h2 { color:#1a3a5c;margin-top:0; }
@@ -53,7 +54,7 @@
 <script>
 (function(){
   var run = new URLSearchParams(window.location.search).get('run');
-  var src = run ? ('../data/outputs/data_'+run+'.js') : '../data/data.js';
+  var src = run ? ('../data/outputs/data_'+run+'.js') : ('../data/data.js?t=' + Date.now());
   document.write('<scr'+'ipt src="'+src+'"><\/scr'+'ipt>');
   document.write('<scr'+'ipt src="../data/runs_index.js"><\/scr'+'ipt>');
 })();
@@ -101,27 +102,114 @@ if (typeof PREDICTOR_DATA === 'undefined') {
   } else {
     var m=found, t1=m.team1, t2=m.team2, t1p=m.t1_profile||{}, t2p=m.t2_profile||{}, h2h=m.h2h||{};
     var dispScore = m.is_played ? m.real_score : m.predicted_score;
-    var sc = dispScore.split('-');
+    var spaceIdx = dispScore.indexOf(' ');
+    var numericScore = dispScore;
+    var extraText = '';
+    if (spaceIdx > 0) {
+      numericScore = dispScore.substring(0, spaceIdx);
+      extraText = dispScore.substring(spaceIdx + 1);
+    }
+    var sc = numericScore.split('-');
 
     document.write('<header><h1>'+flag(t1,26)+' '+t1+' vs '+flag(t2,26)+' '+t2+'</h1><p>'+foundRound+(m.is_played?' &mdash; <strong>PLAYED</strong>':' &mdash; Prediction')+'</p></header>');
-    document.write('<nav><a href="index.html'+(curRun?'?run='+curRun:'')+'">Home</a><span class="sep">|</span><a href="bracket.html'+(curRun?'?run='+curRun:'')+'">Full Bracket</a><span class="sep">|</span><a href="teams.html'+(curRun?'?run='+curRun:'')+'">All Teams</a><span class="sep">|</span><a href="runs.html">Past Runs</a></nav>');
+    document.write('<nav><a href="index.html'+(curRun?'?run='+curRun:'')+'">Home</a><span class="sep">|</span><a href="bracket.html'+(curRun?'?run='+curRun:'')+'">Full Bracket</a><span class="sep">|</span><a href="teams.html'+(curRun?'?run='+curRun:'')+'">All Teams</a><span class="sep">|</span><a href="runs.html">Past Runs</a><span class="sep">|</span><a href="accuracy.html'+(typeof curRun!=='undefined'&&curRun?'?run='+curRun:'')+'">Accuracy</a></nav>');
+
+    // Check if engine needs updating (data is outdated)
+    if (D.rounds) {
+      var earliestUnplayed = null;
+      D.rounds.forEach(function(round) {
+        round.matches.forEach(function(m) {
+          if (!m.is_played && m.kickoff) {
+            var kDate = new Date(m.kickoff);
+            if (!isNaN(kDate.getTime())) {
+              if (!earliestUnplayed || kDate < earliestUnplayed) {
+                earliestUnplayed = kDate;
+              }
+            }
+          }
+        });
+      });
+
+      if (earliestUnplayed) {
+        var now = new Date();
+        var threeHoursMatchTime = 3 * 60 * 60 * 1000;
+        var thresholdTime = new Date(earliestUnplayed.getTime() + threeHoursMatchTime);
+        var genDate = new Date(D.meta.generated_at.replace(' ', 'T'));
+
+        if (now > thresholdTime && genDate < thresholdTime) {
+          document.write('<div class="outdated-warning">&#x26A0;&#xFE0F; Predictions may be outdated! A scheduled match may have kicked off. Please run <code>ampe.bat</code> in the terminal to update the engine with the latest live scores.</div>');
+        }
+      }
+    }
+
     document.write(renderRunSelector());
     document.write('<main>');
 
     // Real score notice
     if (m.is_played) {
-      document.write('<div class="real-score-box">This match has been <strong>played</strong>. Real score: <strong>'+t1+' '+m.real_score+' '+t2+'</strong>. The engine prediction is shown for comparison.</div>');
+      document.write('<div class="real-score-box">This match has been <strong>played</strong>. Real score: <strong>'+t1+' '+numericScore+' '+t2+(extraText ? ' '+extraText : '')+'</strong>. The engine prediction is shown for comparison.</div>');
     }
 
     // SCOREBOARD
     document.write('<div class="scoreboard">');
     document.write('<div><div class="t-name">'+flag(t1,24)+' '+tl(t1)+'</div><div style="font-size:0.82rem;color:#555;margin-top:4px;">ELO: '+(t1p.elo||m.elo_t1||'')+'&nbsp;&nbsp;Rating: '+(t1p.composite||'')+'</div></div>');
     document.write('<div class="sc-center"><div class="sc-num">'+sc[0]+'&nbsp;&ndash;&nbsp;'+sc[1]+'</div>');
+    if (extraText) {
+      document.write('<div style="font-size: 0.8rem; color: #666; margin: 2px 0 6px;">'+extraText+'</div>');
+    }
+
     document.write('<div class="sc-sub">'+(m.is_played?'Real Score':'Predicted &middot; xG: '+m.xg1+' &ndash; '+m.xg2)+'</div>');
-    if (m.is_played) document.write('<div class="sc-sub" style="margin-top:3px;">Engine predicted: '+m.predicted_score+'</div>');
+    if (m.is_played) {
+      document.write('<div class="sc-sub" style="margin-top:3px;">Engine predicted: '+m.predicted_score+'</div>');
+    }
     document.write('<div class="sc-winner">Winner: '+m.winner+'</div></div>');
     document.write('<div style="text-align:right"><div class="t-name right">'+tl(t2)+' '+flag(t2,24)+'</div><div style="font-size:0.82rem;color:#555;margin-top:4px;">ELO: '+(t2p.elo||m.elo_t2||'')+'&nbsp;&nbsp;Rating: '+(t2p.composite||'')+'</div></div>');
     document.write('</div>');
+
+    // PREDICTION ACCURACY BANNER (if played)
+    if (m.is_played && m.predicted_score) {
+      var predScoreNum = (m.predicted_score.split(' ')[0]).trim(); 
+      var realScoreNum = (m.real_score.split(' ')[0]).trim(); 
+      
+      var predWinner = m.predicted_winner;
+      if (!predWinner) {
+        var ps = predScoreNum.split('-');
+        if (parseInt(ps[0]) > parseInt(ps[1])) predWinner = t1;
+        else if (parseInt(ps[0]) < parseInt(ps[1])) predWinner = t2;
+        else if (m.predicted_score.indexOf('wins on Pens') !== -1) {
+          // parse from e.g. "1-1 (Canada wins on Pens)"
+          var matchPens = m.predicted_score.match(/\((.*?) wins on Pens\)/);
+          if (matchPens) predWinner = matchPens[1];
+        }
+        if (!predWinner) predWinner = 'Draw';
+      }
+      
+      var realWinner = m.real_winner || m.winner; 
+      
+      var isWinnerRight = (predWinner === realWinner);
+      var isScoreRight = (predScoreNum === realScoreNum);
+      
+      var bannerMsg = "";
+      var bannerClass = "";
+      
+      if (isWinnerRight && isScoreRight) {
+        bannerMsg = "🎯 <strong>Spot on!</strong> The engine perfectly predicted both the winner ("+realWinner+") and the exact scoreline ("+predScoreNum+").";
+        bannerClass = "badge-w";
+      } else if (isWinnerRight && !isScoreRight) {
+        bannerMsg = "✅ <strong>Winner correct.</strong> The engine correctly predicted "+realWinner+" would advance/win, but predicted a "+predScoreNum+" scoreline.";
+        bannerClass = "badge-w";
+      } else if (!isWinnerRight && isScoreRight) {
+        bannerMsg = "⚠️ <strong>Score correct, but wrong outcome.</strong> The engine predicted the "+predScoreNum+" scoreline, but got the tiebreaker wrong (predicted "+predWinner+").";
+        bannerClass = "badge-d";
+      } else {
+        bannerMsg = "❌ <strong>Prediction missed.</strong> The engine predicted a "+predScoreNum+" outcome in favor of "+predWinner+", but the reality was a "+realScoreNum+" outcome for "+realWinner+".";
+        bannerClass = "badge-l";
+      }
+      
+      document.write('<div style="margin-bottom: 20px; padding: 14px 18px; border-radius: 4px; font-size: 0.92rem; border: 1px solid rgba(0,0,0,0.1);" class="'+bannerClass+'">');
+      document.write(bannerMsg);
+      document.write('</div>');
+    }
 
     // WIN PROBS
     document.write('<section class="section"><h2>Win Probabilities (Engine Model)</h2>');

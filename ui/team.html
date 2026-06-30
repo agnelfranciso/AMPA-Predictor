@@ -49,7 +49,7 @@
 <script>
 (function(){
   var run = new URLSearchParams(window.location.search).get('run');
-  var src = run ? ('../data/outputs/data_'+run+'.js') : '../data/data.js';
+  var src = run ? ('../data/outputs/data_'+run+'.js') : ('../data/data.js?t=' + Date.now());
   document.write('<scr'+'ipt src="'+src+'"><\/scr'+'ipt>');
   document.write('<scr'+'ipt src="../data/runs_index.js"><\/scr'+'ipt>');
 })();
@@ -97,7 +97,7 @@ if (typeof PREDICTOR_DATA === 'undefined') {
     document.write('<header>');
     if (FLAGS[p.display]) document.write('<img src="'+FLAGS[p.display]+'" height="52" style="border:1px solid rgba(255,255,255,0.2);" alt="">');
     document.write('<h1>'+p.display+'</h1></header>');
-    document.write('<nav><a href="index.html'+(curRun?'?run='+curRun:'')+'">Home</a><span class="sep">|</span><a href="bracket.html'+(curRun?'?run='+curRun:'')+'">Full Bracket</a><span class="sep">|</span><a href="teams.html'+(curRun?'?run='+curRun:'')+'">All Teams</a><span class="sep">|</span><a href="runs.html">Past Runs</a></nav>');
+    document.write('<nav><a href="index.html'+(curRun?'?run='+curRun:'')+'">Home</a><span class="sep">|</span><a href="bracket.html'+(curRun?'?run='+curRun:'')+'">Full Bracket</a><span class="sep">|</span><a href="teams.html'+(curRun?'?run='+curRun:'')+'">All Teams</a><span class="sep">|</span><a href="runs.html">Past Runs</a><span class="sep">|</span><a href="accuracy.html'+(typeof curRun!=='undefined'&&curRun?'?run='+curRun:'')+'">Accuracy</a></nav>');
     document.write(renderRunSelector());
     document.write('<main>');
 

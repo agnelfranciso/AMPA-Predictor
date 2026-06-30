@@ -8,17 +8,20 @@ import os
 import sys
 import argparse
 import warnings
-from scipy.stats import poisson
+from scipy.stats import poisson, nbinom
 import numpy as np
 warnings.filterwarnings('ignore')
 
 # ============================================================
-#  AGNEL MATCH PREDICTION ENGINE (AMPE) v7.0
+#  AGNEL MATCH PREDICTION ENGINE (AMPE) v8.0
 #  - Live scores from worldcup26.ir (free, no auth needed)
 #  - WC2026 GROUP STAGE results injected into training data
 #  - Deep football-analyst strengths/weaknesses (12+ dimensions)
 #  - Versioned outputs + runs_index.js
 #  - Dixon-Coles + H2H boost + Elo + form scoring + FIFA ranks
+#  - v8.0: Negative Binomial dist, opponent-quality-adjusted stats,
+#          momentum/streak detection, knockout pressure model,
+#          venue/travel factor, fatigue/rest days, upgraded composite
 # ============================================================
 
 TARGET_DATE      = pd.to_datetime("2026-06-28")
@@ -32,6 +35,32 @@ FORM_GAMES       = 10
 TOURNAMENT_BOOST = 1.2
 # Scaling factor: inflate lambdas so predictions are more realistic (1.0 = base Poisson)
 GOAL_INFLATE     = 1.25   # lifts avg goals from ~0.9 to ~1.1 per team per match
+NBINOM_R         = 5.0    # Negative Binomial dispersion param (lower = fatter tails)
+MOMENTUM_WIN_STREAK_THRESH  = 4   # consecutive wins for streak bonus
+MOMENTUM_UNBEATEN_THRESH    = 8   # consecutive unbeaten for bonus
+MOMENTUM_LOSE_STREAK_THRESH = 3   # consecutive losses for penalty
+
+# ---- Confederation Mapping (for venue/travel factor) ----
+CONFEDERATION = {
+    "United States": "CONCACAF", "Canada": "CONCACAF", "Mexico": "CONCACAF",
+    "Panama": "CONCACAF", "Costa Rica": "CONCACAF", "Jamaica": "CONCACAF",
+    "Honduras": "CONCACAF",
+    "Brazil": "CONMEBOL", "Argentina": "CONMEBOL", "Colombia": "CONMEBOL",
+    "Ecuador": "CONMEBOL", "Paraguay": "CONMEBOL", "Uruguay": "CONMEBOL",
+    "Chile": "CONMEBOL", "Peru": "CONMEBOL", "Venezuela": "CONMEBOL",
+    "Bolivia": "CONMEBOL",
+    "England": "UEFA", "France": "UEFA", "Germany": "UEFA", "Spain": "UEFA",
+    "Netherlands": "UEFA", "Portugal": "UEFA", "Belgium": "UEFA",
+    "Croatia": "UEFA", "Switzerland": "UEFA", "Austria": "UEFA",
+    "Sweden": "UEFA", "Norway": "UEFA", "Scotland": "UEFA",
+    "Bosnia and Herzegovina": "UEFA",
+    "Morocco": "CAF", "Senegal": "CAF", "Ghana": "CAF", "Algeria": "CAF",
+    "Ivory Coast": "CAF", "Egypt": "CAF", "South Africa": "CAF",
+    "DR Congo": "CAF", "Cape Verde": "CAF",
+    "Japan": "AFC", "South Korea": "AFC", "Australia": "AFC",
+    "Saudi Arabia": "AFC", "Qatar": "AFC", "Iran": "AFC",
+    "Iraq": "AFC", "Uzbekistan": "AFC",
+}
 
 # ---- Ro32 Fixtures (display names) ----
 fixtures_ro32 = [
@@ -128,12 +157,18 @@ def fetch_live_scores():
         # API field names can vary - try multiple
         home = (game.get('homeTeam') or game.get('home_team') or game.get('home') or {})
         away = (game.get('awayTeam') or game.get('away_team') or game.get('away') or {})
+        
         if isinstance(home, str): home_name = home
         else: home_name = home.get('name') or home.get('en') or home.get('nameEn') or ''
+        if not home_name: home_name = game.get('home_team_name_en') or ''
+        
         if isinstance(away, str): away_name = away
         else: away_name = away.get('name') or away.get('en') or away.get('nameEn') or ''
+        if not away_name: away_name = game.get('away_team_name_en') or ''
 
-        status = (game.get('status') or game.get('matchStatus') or '').upper()
+        status = (game.get('status') or game.get('matchStatus') or game.get('time_elapsed') or str(game.get('finished'))).upper()
+        if status == 'TRUE': status = 'FINISHED'
+        
         hs = game.get('homeScore') or game.get('home_score') or game.get('homeGoals') or game.get('score', {}).get('home', None)
         as_ = game.get('awayScore') or game.get('away_score') or game.get('awayGoals') or game.get('score', {}).get('away', None)
 
@@ -150,16 +185,51 @@ def fetch_live_scores():
                 mapped_away = display
 
         if mapped_home and mapped_away:
+            # Skip group stage matches so they don't accidentally override a knockout match between the same teams!
+            if game.get('type') == 'group':
+                continue
+                
             key = frozenset([mapped_home, mapped_away])
             is_finished = any(w in status for w in ['FINISH','COMPLET','ENDED','FULL','FT'])
-            score_available = (hs is not None and as_ is not None)
+            score_available = (hs not in [None, 'null', 'NULL', ''] and as_ not in [None, 'null', 'NULL', ''])
+            
+            try:
+                hs_int = int(hs) if score_available else None
+                as_int = int(as_) if score_available else None
+            except (ValueError, TypeError):
+                hs_int = None
+                as_int = None
+                score_available = False
+
+            hp = game.get('home_penalty_score')
+            ap = game.get('away_penalty_score')
+            hp_int = None
+            ap_int = None
+            if hp not in [None, 'null', 'NULL', '']:
+                try: hp_int = int(hp)
+                except ValueError: pass
+            if ap not in [None, 'null', 'NULL', '']:
+                try: ap_int = int(ap)
+                except ValueError: pass
+
+            # Parse kickoff date
+            kickoff_str = game.get('local_date', '')
+            try:
+                dt = datetime.datetime.strptime(kickoff_str, "%m/%d/%Y %H:%M")
+                kickoff_iso = dt.strftime("%Y-%m-%dT%H:%M:%S")
+            except Exception:
+                kickoff_iso = kickoff_str
+
             live_scores[key] = {
                 'home': mapped_home,
                 'away': mapped_away,
-                'home_score': int(hs) if score_available else None,
-                'away_score': int(as_) if score_available else None,
+                'home_score': hs_int,
+                'away_score': as_int,
+                'home_pen': hp_int,
+                'away_pen': ap_int,
                 'status': status,
                 'finished': is_finished and score_available,
+                'kickoff': kickoff_iso,
             }
             count += 1
 
@@ -373,33 +443,79 @@ def compute_elo(df, target_date):
     return elo
 
 # ============================================================
-#  ATTACK / DEFENSE STRENGTHS
+#  ATTACK / DEFENSE STRENGTHS (v8.0: opponent-quality adjusted)
 # ============================================================
 def compute_strengths(df, target_date):
-    print("Computing attack/defense strengths (time-decay weighted)...")
+    print("Computing attack/defense strengths (time-decay weighted, opponent-quality adjusted)...")
     cutoff = target_date - pd.Timedelta(days=365*YEARS_BACK)
     dfw = df[(df['date']>=cutoff)&(df['date']<target_date)].copy()
     dfw['w'] = dfw.apply(lambda r: match_weight(r, target_date), axis=1)
     tw = dfw['w'].sum()
     global_avg = ((dfw['home_score']*dfw['w']).sum() + (dfw['away_score']*dfw['w']).sum()) / (2*tw)
     teams = set(dfw['home_team'])|set(dfw['away_team'])
+
+    # First pass: raw stats (needed for opponent quality lookup)
+    raw_stats = {}
+    for team in teams:
+        hm = dfw[dfw['home_team']==team]
+        am = dfw[dfw['away_team']==team]
+        tw_ = hm['w'].sum()+am['w'].sum()
+        if tw_ < 0.01:
+            raw_stats[team] = {'attack':1.0,'defense':1.0,'avg_gf':global_avg,'avg_ga':global_avg,'n':0}
+            continue
+        gf = (hm['home_score']*hm['w']).sum()+(am['away_score']*am['w']).sum()
+        ga = (hm['away_score']*hm['w']).sum()+(am['home_score']*am['w']).sum()
+        agf, aga = gf/tw_, ga/tw_
+        raw_stats[team] = {
+            'attack':  round(agf/global_avg, 4) if global_avg>0 else 1.0,
+            'defense': round(aga/global_avg, 4) if global_avg>0 else 1.0,
+            'avg_gf':  round(agf, 3),
+            'avg_ga':  round(aga, 3),
+            'n':       len(hm)+len(am),
+        }
+
+    # Second pass: adjust for opponent quality
+    # Scoring 3 against a team with defense=0.5 is worth more than scoring 3 against defense=1.5
     stats = {}
     for team in teams:
         hm = dfw[dfw['home_team']==team]
         am = dfw[dfw['away_team']==team]
         tw_ = hm['w'].sum()+am['w'].sum()
         if tw_ < 0.01:
-            stats[team] = {'attack':1.0,'defense':1.0,'avg_gf':global_avg,'avg_ga':global_avg,'n':0}
+            stats[team] = raw_stats[team]
             continue
-        gf = (hm['home_score']*hm['w']).sum()+(am['away_score']*am['w']).sum()
-        ga = (hm['away_score']*hm['w']).sum()+(am['home_score']*am['w']).sum()
-        agf, aga = gf/tw_, ga/tw_
+
+        adj_gf = 0.0
+        adj_ga = 0.0
+        for _, row in hm.iterrows():
+            opp = row['away_team']
+            opp_def = raw_stats.get(opp, {}).get('defense', 1.0)
+            opp_att = raw_stats.get(opp, {}).get('attack', 1.0)
+            # Goals scored against a strong defense (low defense index) are worth more
+            adj_gf += row['home_score'] * row['w'] * max(0.5, min(2.0, 1.0 / max(opp_def, 0.3)))
+            # Goals conceded from a strong attack are less punishing
+            adj_ga += row['away_score'] * row['w'] * max(0.5, min(2.0, 1.0 / max(opp_att, 0.3)))
+        for _, row in am.iterrows():
+            opp = row['home_team']
+            opp_def = raw_stats.get(opp, {}).get('defense', 1.0)
+            opp_att = raw_stats.get(opp, {}).get('attack', 1.0)
+            adj_gf += row['away_score'] * row['w'] * max(0.5, min(2.0, 1.0 / max(opp_def, 0.3)))
+            adj_ga += row['home_score'] * row['w'] * max(0.5, min(2.0, 1.0 / max(opp_att, 0.3)))
+
+        adj_agf = adj_gf / tw_
+        adj_aga = adj_ga / tw_
+
+        # Blend: 60% opponent-adjusted, 40% raw (to avoid over-correction)
+        raw = raw_stats[team]
+        blend_gf = 0.6 * adj_agf + 0.4 * raw['avg_gf']
+        blend_ga = 0.6 * adj_aga + 0.4 * raw['avg_ga']
+
         stats[team] = {
-            'attack':  round(agf/global_avg, 4) if global_avg>0 else 1.0,
-            'defense': round(aga/global_avg, 4) if global_avg>0 else 1.0,
-            'avg_gf':  round(agf, 3),
-            'avg_ga':  round(aga, 3),
-            'n':       len(hm)+len(am),
+            'attack':  round(blend_gf/global_avg, 4) if global_avg>0 else 1.0,
+            'defense': round(blend_ga/global_avg, 4) if global_avg>0 else 1.0,
+            'avg_gf':  round(blend_gf, 3),
+            'avg_ga':  round(blend_ga, 3),
+            'n':       raw['n'],
         }
     print(f"  Strengths computed for {len(stats):,} teams | global avg goals/team: {global_avg:.3f}")
     return stats, global_avg
@@ -424,6 +540,141 @@ def compute_form(df, ds_name, target_date, n=FORM_GAMES):
     lg = results[0]
     last = {'W':'Won','D':'Drew','L':'Lost'}[lg['result']] + f" {lg['gf']}-{lg['gc']} vs {lg['opponent']} ({lg['date']})"
     return score, results, last
+
+# ============================================================
+#  MOMENTUM & STREAK DETECTION (v8.0)
+# ============================================================
+def compute_momentum(df, ds_name, target_date, n=15):
+    """Detect winning/losing/unbeaten streaks and scoring streaks.
+    Returns a dict with streak info and a momentum multiplier."""
+    ms = df[((df['home_team']==ds_name)|(df['away_team']==ds_name))&(df['date']<target_date)].sort_values('date',ascending=False).head(n)
+    if len(ms) == 0:
+        return {'win_streak': 0, 'unbeaten_streak': 0, 'lose_streak': 0, 'scoring_streak': 0, 'multiplier': 1.0}
+
+    win_streak = 0
+    unbeaten_streak = 0
+    lose_streak = 0
+    scoring_streak = 0
+    for _, m in ms.iterrows():
+        ih = m['home_team'] == ds_name
+        gf = m['home_score'] if ih else m['away_score']
+        gc = m['away_score'] if ih else m['home_score']
+        # Win streak
+        if gf > gc:
+            if lose_streak == 0: win_streak += 1
+            else: break
+        elif gf == gc:
+            if lose_streak == 0 and win_streak > 0: pass  # unbeaten continues
+            else: break
+        else:
+            break
+
+    # Recalculate unbeaten and lose streaks separately
+    for _, m in ms.iterrows():
+        ih = m['home_team'] == ds_name
+        gf = m['home_score'] if ih else m['away_score']
+        gc = m['away_score'] if ih else m['home_score']
+        if gf >= gc: unbeaten_streak += 1
+        else: break
+
+    for _, m in ms.iterrows():
+        ih = m['home_team'] == ds_name
+        gf = m['home_score'] if ih else m['away_score']
+        gc = m['away_score'] if ih else m['home_score']
+        if gf < gc: lose_streak += 1
+        else: break
+
+    # Scoring streak (scored 2+ goals)
+    for _, m in ms.iterrows():
+        ih = m['home_team'] == ds_name
+        gf = m['home_score'] if ih else m['away_score']
+        if gf >= 2: scoring_streak += 1
+        else: break
+
+    # Calculate multiplier
+    mult = 1.0
+    if win_streak >= MOMENTUM_WIN_STREAK_THRESH:
+        mult += 0.02 * min(win_streak - MOMENTUM_WIN_STREAK_THRESH + 1, 4)  # +2% to +8%
+    if unbeaten_streak >= MOMENTUM_UNBEATEN_THRESH:
+        mult += 0.01 * min(unbeaten_streak - MOMENTUM_UNBEATEN_THRESH + 1, 4)  # +1% to +4%
+    if lose_streak >= MOMENTUM_LOSE_STREAK_THRESH:
+        mult -= 0.03 * min(lose_streak - MOMENTUM_LOSE_STREAK_THRESH + 1, 3)  # -3% to -9%
+    if scoring_streak >= 5:
+        mult += 0.015 * min(scoring_streak - 4, 3)  # +1.5% to +4.5% attack boost
+
+    return {
+        'win_streak': win_streak,
+        'unbeaten_streak': unbeaten_streak,
+        'lose_streak': lose_streak,
+        'scoring_streak': scoring_streak,
+        'multiplier': round(mult, 4)
+    }
+
+# ============================================================
+#  KNOCKOUT PRESSURE MODEL (v8.0)
+# ============================================================
+def compute_knockout_factor(df, ds_name, target_date):
+    """Compute a knockout stage pressure factor based on historical
+    performance in knockout/elimination rounds of major tournaments."""
+    ko_keywords = ['knockout', 'final', 'quarter', 'semi', 'round of']
+    tourn_keywords = ['FIFA World Cup', 'UEFA Euro', 'Copa América', 'Africa Cup', 'Asian Cup']
+
+    tdf = df[
+        (df['tournament'].apply(lambda t: any(k in str(t) for k in tourn_keywords))) &
+        ((df['home_team']==ds_name)|(df['away_team']==ds_name)) &
+        (df['date']<target_date) &
+        (df['date']>=target_date-pd.Timedelta(days=365*12))
+    ]
+
+    # Count wins/losses in elimination-style matches (proxy: not group stage)
+    # We use a simple heuristic: matches in major tournaments that are NOT in a group stage
+    # Major tournament matches where teams play each other only once tend to be knockouts
+    w = l = d = 0
+    penalty_wins = 0
+    penalty_losses = 0
+    for _, m in tdf.iterrows():
+        ih = m['home_team'] == ds_name
+        gf = m['home_score'] if ih else m['away_score']
+        gc = m['away_score'] if ih else m['home_score']
+        if gf > gc: w += 1
+        elif gf < gc: l += 1
+        else:
+            d += 1
+            # Draws in knockout = likely penalties
+            penalty_wins += 0.5  # assume 50/50 if we don't know
+
+    total = max(w + l + d, 1)
+    win_rate = (w + 0.3 * d) / total  # draws less valuable in knockouts
+
+    # Knockout factor: ranges from 0.95 (poor KO record) to 1.08 (excellent KO record)
+    factor = 0.95 + 0.13 * min(1.0, win_rate / 0.6)
+
+    return {
+        'ko_wins': w, 'ko_losses': l, 'ko_draws': d,
+        'ko_win_rate': round(win_rate * 100, 1),
+        'factor': round(factor, 4)
+    }
+
+# ============================================================
+#  VENUE & TRAVEL FACTOR (v8.0)
+# ============================================================
+def compute_venue_factor(ds_name):
+    """Calculate venue/travel advantage. Tournament is in USA/Canada/Mexico."""
+    conf = CONFEDERATION.get(ds_name, 'OTHER')
+    HOSTS = {'United States', 'Canada', 'Mexico'}
+    if ds_name in HOSTS:
+        return 1.12  # Strong home advantage
+    elif conf == 'CONCACAF':
+        return 1.05  # Familiar conditions, nearby travel
+    elif conf == 'CONMEBOL':
+        return 1.03  # Americas, moderate travel, similar time zones
+    elif conf == 'UEFA':
+        return 1.00  # Neutral — used to big tournaments, moderate travel
+    elif conf == 'CAF':
+        return 0.98  # Significant travel, less familiar conditions
+    elif conf == 'AFC':
+        return 0.96  # Long-haul, jet lag, very different conditions
+    return 0.98  # Default slight disadvantage
 
 # ============================================================
 #  GOAL STATS
@@ -462,19 +713,41 @@ def compute_tourn_record(df, ds_name, target_date):
 # ============================================================
 #  H2H
 # ============================================================
-def compute_h2h(df, ds1, ds2):
+def compute_h2h(df, ds1, ds2, target_date=None):
     h2h = df[((df['home_team']==ds1)&(df['away_team']==ds2))|((df['home_team']==ds2)&(df['away_team']==ds1))].sort_values('date',ascending=False)
     t1w=t2w=draws=t1gf=t1ga=0
+    weighted_t1gf=0.0
+    weighted_t1ga=0.0
+    weighted_total=0.0
     meetings=[]
     for _,m in h2h.iterrows():
         ih=m['home_team']==ds1
         gf=m['home_score'] if ih else m['away_score']; gc=m['away_score'] if ih else m['home_score']
         t1gf+=gf; t1ga+=gc
+        
+        # Calculate time-decay weight for this encounter (365 days half-life)
+        if target_date is not None:
+            days_ago = max((target_date - m['date']).days, 0)
+            w = math.exp(-math.log(2) * days_ago / 365.0)
+        else:
+            w = 1.0
+            
+        weighted_t1gf += gf * w
+        weighted_t1ga += gc * w
+        weighted_total += w
+        
         if gf>gc: t1w+=1; r='W'
         elif gf<gc: t2w+=1; r='L'
         else: draws+=1; r='D'
         meetings.append({'date':m['date'].strftime('%Y-%m-%d'),'score':f"{gf}-{gc}",'result':r,'tourn':str(m.get('tournament',''))})
-    return {'t1_wins':t1w,'t2_wins':t2w,'draws':draws,'total':t1w+t2w+draws,'t1_gf':t1gf,'t1_ga':t1ga,'meetings':meetings[:10]}
+    return {
+        't1_wins':t1w,'t2_wins':t2w,'draws':draws,'total':t1w+t2w+draws,
+        't1_gf':t1gf,'t1_ga':t1ga,
+        'weighted_t1_gf': weighted_t1gf,
+        'weighted_t1_ga': weighted_t1ga,
+        'weighted_total': weighted_total,
+        'meetings':meetings[:10]
+    }
 
 # ============================================================
 #  STRENGTHS / WEAKNESSES  (deep football analyst model)
@@ -578,28 +851,35 @@ def swlabels(attack, defense, form, gs, tourn, elo, form_results=None):
     return S[:6], W[:5]
 
 # ============================================================
-#  COMPOSITE RATING
+#  COMPOSITE RATING v2 (v8.0: includes momentum + knockout factor)
 # ============================================================
-def composite_rating(elo, attack, defense, form, tourn, fifa_pts=None):
+def composite_rating(elo, attack, defense, form, tourn, fifa_pts=None, momentum_mult=1.0, ko_factor=1.0):
     elo_s  = min(100, max(0, (elo-1000)/12))
     att_s  = min(100, max(0, attack*50))
     def_s  = min(100, max(0, (2-defense)*50))
     tw = (tourn['wins']+0.5*tourn['draws'])/max(tourn['matches'],1)*100
+    mom_s  = min(100, max(0, momentum_mult * 50))  # 1.0 = 50, 1.08 = 54
+    ko_s   = min(100, max(0, ko_factor * 50))       # 1.0 = 50, 1.08 = 54
     
     # If FIFA points available, blend them in
     if fifa_pts:
         fifa_s = min(100, max(0, (fifa_pts-900)/12))
-        return round(elo_s*0.25 + fifa_s*0.15 + att_s*0.20 + def_s*0.20 + form*0.10 + tw*0.10, 1)
+        return round(elo_s*0.22 + fifa_s*0.12 + att_s*0.18 + def_s*0.18 + form*0.10 + tw*0.08 + mom_s*0.06 + ko_s*0.06, 1)
     
-    return round(elo_s*0.35 + att_s*0.20 + def_s*0.20 + form*0.15 + tw*0.10, 1)
+    return round(elo_s*0.28 + att_s*0.18 + def_s*0.18 + form*0.12 + tw*0.08 + mom_s*0.08 + ko_s*0.08, 1)
 
 # ============================================================
-#  IMPROVED POISSON SIMULATION
-#  - Uses GOAL_INFLATE to push lambdas higher
-#  - Uses negative binomial dispersion parameter to spread scores wider
-#  - H2H nudge: if teams historically score freely vs each other, boost lambda
+#  v8.0 ADVANCED SIMULATION ENGINE
+#  - Negative Binomial distribution (overdispersion)
+#  - Venue/travel factor
+#  - Momentum multiplier
+#  - Knockout pressure factor
+#  - Rest day fatigue factor
+#  - Dixon-Coles correction + H2H boost
 # ============================================================
-def simulate_match(ds1, ds2, disp1, disp2, strengths, elo_ratings, global_avg, form_scores, h2h=None):
+def simulate_match(ds1, ds2, disp1, disp2, strengths, elo_ratings, global_avg, form_scores,
+                   h2h=None, momentum1=None, momentum2=None, ko1=None, ko2=None,
+                   rest_days1=None, rest_days2=None, target_date=None):
     s1 = strengths.get(ds1, {'attack':1.0,'defense':1.0})
     s2 = strengths.get(ds2, {'attack':1.0,'defense':1.0})
     e1, e2 = elo_ratings.get(ds1,1500), elo_ratings.get(ds2,1500)
@@ -612,25 +892,65 @@ def simulate_match(ds1, ds2, disp1, disp2, strengths, elo_ratings, global_avg, f
     form_adj1 = 0.88 + 0.24*f1
     form_adj2 = 0.88 + 0.24*f2
 
-    # H2H goal boost: if these teams historically score a lot together
-    h2h_gf1 = h2h['t1_gf'] if h2h else 0
-    h2h_gf2 = h2h['t1_ga'] if h2h else 0
-    h2h_n   = max(h2h['total'], 1) if h2h else 1
+    # H2H goal boost: v8.0 time-weighted recent encounters influence predictions heavily!
+    h2h_gf1 = h2h.get('weighted_t1_gf', h2h.get('t1_gf', 0)) if h2h else 0
+    h2h_gf2 = h2h.get('weighted_t1_ga', h2h.get('t1_ga', 0)) if h2h else 0
+    h2h_n   = max(h2h.get('weighted_total', h2h.get('total', 1)), 0.01) if h2h else 1
     h2h_avg1 = h2h_gf1 / h2h_n
     h2h_avg2 = h2h_gf2 / h2h_n
-    h2h_boost1 = max(0.9, min(1.2, h2h_avg1 / max(global_avg, 0.5))) if h2h and h2h['total']>=3 else 1.0
-    h2h_boost2 = max(0.9, min(1.2, h2h_avg2 / max(global_avg, 0.5))) if h2h and h2h['total']>=3 else 1.0
+    h2h_boost1 = max(0.9, min(1.2, h2h_avg1 / max(global_avg, 0.5))) if h2h and h2h.get('total', 0)>=3 else 1.0
+    h2h_boost2 = max(0.9, min(1.2, h2h_avg2 / max(global_avg, 0.5))) if h2h and h2h.get('total', 0)>=3 else 1.0
 
-    HOSTS = {"United States", "USA", "Canada", "Mexico"}
-    CONCACAF = {"United States", "USA", "Canada", "Mexico", "Panama", "Costa Rica", "Jamaica", "Honduras"}
-    
-    host_boost1 = 1.15 if ds1 in HOSTS else (1.05 if ds1 in CONCACAF else 1.0)
-    host_boost2 = 1.15 if ds2 in HOSTS else (1.05 if ds2 in CONCACAF else 1.0)
+    # v8.0: Recent encounter direct winner nudge (within 180 days)
+    recent_h2h_nudge1 = 1.0
+    recent_h2h_nudge2 = 1.0
+    if h2h and h2h.get('meetings') and target_date:
+        latest_meet = h2h['meetings'][0]
+        try:
+            meet_date = pd.to_datetime(latest_meet['date'])
+            days_ago = (target_date - meet_date).days
+            if 0 <= days_ago <= 180:
+                # Nudge decays over a 60-day half-life
+                recency_weight = math.exp(-math.log(2) * days_ago / 60.0)
+                if latest_meet['result'] == 'W':
+                    recent_h2h_nudge1 += 0.15 * recency_weight
+                    recent_h2h_nudge2 -= 0.08 * recency_weight
+                elif latest_meet['result'] == 'L':
+                    recent_h2h_nudge1 -= 0.08 * recency_weight
+                    recent_h2h_nudge2 += 0.15 * recency_weight
+        except Exception:
+            pass
 
-    l1 = max(0.3, s1['attack'] * s2['defense'] * global_avg * elo_adj1 * form_adj1 * GOAL_INFLATE * h2h_boost1 * host_boost1)
-    l2 = max(0.3, s2['attack'] * s1['defense'] * global_avg * elo_adj2 * form_adj2 * GOAL_INFLATE * h2h_boost2 * host_boost2)
+    # v8.0: Venue/Travel factor (replaces old hard-coded host boost)
+    venue1 = compute_venue_factor(ds1)
+    venue2 = compute_venue_factor(ds2)
 
-    # Dixon-Coles low-score correction (discourages 0-0 inflation, makes 1-0/0-1 less dominant)
+    # v8.0: Momentum multiplier
+    mom1 = momentum1['multiplier'] if momentum1 else 1.0
+    mom2 = momentum2['multiplier'] if momentum2 else 1.0
+
+    # v8.0: Knockout pressure factor
+    kof1 = ko1['factor'] if ko1 else 1.0
+    kof2 = ko2['factor'] if ko2 else 1.0
+
+    # v8.0: Rest/fatigue factor (optimal rest = 4-5 days)
+    def rest_factor(days):
+        if days is None: return 1.0
+        if days >= 5: return 1.0
+        if days >= 4: return 0.99
+        if days >= 3: return 0.97
+        if days >= 2: return 0.94
+        return 0.90  # played yesterday — extremely fatigued
+
+    rf1 = rest_factor(rest_days1)
+    rf2 = rest_factor(rest_days2)
+
+    l1 = max(0.3, s1['attack'] * s2['defense'] * global_avg * elo_adj1 * form_adj1
+             * GOAL_INFLATE * h2h_boost1 * venue1 * mom1 * kof1 * rf1 * recent_h2h_nudge1)
+    l2 = max(0.3, s2['attack'] * s1['defense'] * global_avg * elo_adj2 * form_adj2
+             * GOAL_INFLATE * h2h_boost2 * venue2 * mom2 * kof2 * rf2 * recent_h2h_nudge2)
+
+    # Dixon-Coles low-score correction
     def dc_correction(i, j, mu1, mu2, rho=-0.1):
         if i==0 and j==0: return 1 - mu1*mu2*rho
         if i==1 and j==0: return 1 + mu2*rho
@@ -638,18 +958,26 @@ def simulate_match(ds1, ds2, disp1, disp2, strengths, elo_ratings, global_avg, f
         if i==1 and j==1: return 1 - rho
         return 1.0
         
-    # Advanced Bivariate Urgency: higher scores increase variance/openness
+    # Bivariate Urgency: open games breed more goals
     def bivariate_urgency(g1, g2):
         if g1 > 0 and g2 > 0:
             return 1.0 + 0.08 * min(g1, g2)
         return 1.0
+
+    # v8.0: Negative Binomial PMF (captures overdispersion in football scores)
+    # NB parameterized by n (number of successes) and p (probability)
+    # Mean = n*(1-p)/p, so p = n/(n+lambda), where n = NBINOM_R
+    def nb_pmf(k, lam):
+        r = NBINOM_R
+        p = r / (r + lam)
+        return nbinom.pmf(k, r, p)
 
     MAXG = 12
     p1w = p2w = pd_ = 0.0
     score_probs = {}
     for g1 in range(MAXG+1):
         for g2 in range(MAXG+1):
-            p = poisson.pmf(g1,l1)*poisson.pmf(g2,l2)*dc_correction(g1,g2,l1,l2)*bivariate_urgency(g1,g2)
+            p = nb_pmf(g1,l1) * nb_pmf(g2,l2) * dc_correction(g1,g2,l1,l2) * bivariate_urgency(g1,g2)
             score_probs[(g1,g2)] = max(0,p)
 
     # Normalize
@@ -665,16 +993,32 @@ def simulate_match(ds1, ds2, disp1, disp2, strengths, elo_ratings, global_avg, f
     xg2 = sum(g2*p for (g1,g2),p in score_probs.items())
     top5 = sorted(score_probs.items(), key=lambda x:x[1], reverse=True)[:5]
 
-    # Most likely score (avoid draw in knockout)
+    # Most likely score (this is ALWAYS the 90-minute prediction)
     ms1, ms2 = top5[0][0]
-    if ms1==ms2:
-        non_draw = [(s,p) for (s,p) in top5 if s[0]!=s[1]]
-        if non_draw:
-            ms1, ms2 = non_draw[0][0]
-        elif l1>l2: ms1+=1
-        else: ms2+=1
-
-    winner = disp1 if ms1>ms2 else disp2
+    
+    if ms1 == ms2:
+        # Draw after 90 minutes — does it go to ET or Pens?
+        # Use extra time lambdas (~1/3 of 90 min match intensity)
+        et_l1, et_l2 = l1 / 3.0, l2 / 3.0
+        
+        if et_l1 > et_l2 + 0.15:
+            winner = disp1
+            score_str = f"{ms1}-{ms2} ({winner} wins in ET)"
+            outcome = "Extra Time"
+        elif et_l2 > et_l1 + 0.15:
+            winner = disp2
+            score_str = f"{ms1}-{ms2} ({winner} wins in ET)"
+            outcome = "Extra Time"
+        else:
+            pen_edge1 = p1w * kof1
+            pen_edge2 = p2w * kof2
+            winner = disp1 if pen_edge1 > pen_edge2 else disp2
+            score_str = f"{ms1}-{ms2} ({winner} wins on Pens)"
+            outcome = "Penalties"
+    else:
+        winner = disp1 if ms1 > ms2 else disp2
+        score_str = f"{ms1}-{ms2}"
+        outcome = "Normal Time"
 
     return {
         'lambda1':         round(l1,3),
@@ -684,7 +1028,8 @@ def simulate_match(ds1, ds2, disp1, disp2, strengths, elo_ratings, global_avg, f
         'prob_t1_win':     round(p1w*100,1),
         'prob_t2_win':     round(p2w*100,1),
         'prob_draw':       round(pd_*100,1),
-        'predicted_score': f"{ms1}-{ms2}",
+        'predicted_score': score_str,
+        'predicted_outcome': outcome,
         'winner':          winner,
         'winner_ds':       ds(winner),
         'elo_t1':          round(e1),
@@ -703,11 +1048,15 @@ def build_profile(display, df, strengths, elo_ratings, target_date, fifa_ranking
     form_score, form_results, last_game = compute_form(df, ds_name, target_date)
     gs = compute_goal_stats(df, ds_name, target_date)
     tourn = compute_tourn_record(df, ds_name, target_date)
+    momentum = compute_momentum(df, ds_name, target_date)
+    ko_factor = compute_knockout_factor(df, ds_name, target_date)
+    venue_factor = compute_venue_factor(ds_name)
     S, W = swlabels(st['attack'], st['defense'], form_score, gs, tourn, elo, form_results)
     
     fifa_data = fifa_rankings.get(ds_name, {})
     fifa_pts = fifa_data.get('points')
-    comp = composite_rating(elo, st['attack'], st['defense'], form_score, tourn, fifa_pts)
+    comp = composite_rating(elo, st['attack'], st['defense'], form_score, tourn, fifa_pts,
+                            momentum['multiplier'], ko_factor['factor'])
     
     return {
         'display': display,
@@ -724,6 +1073,9 @@ def build_profile(display, df, strengths, elo_ratings, target_date, fifa_ranking
         'last_game':   last_game,
         'goal_stats':  gs,
         'tourn_record':tourn,
+        'momentum':    momentum,
+        'knockout_factor': ko_factor,
+        'venue_factor': venue_factor,
         'strengths':   S,
         'weaknesses':  W,
     }
@@ -737,6 +1089,13 @@ def simulate_tournament(fixtures, df, strengths, elo_ratings, global_avg, profil
     all_rounds = []
     form_scores = {p['ds_name']: p['form_score'] for p in profiles.values()}
 
+    # v8.0: Pre-compute momentum and knockout factors for all teams
+    momentum_data = {p['ds_name']: p.get('momentum', {'multiplier': 1.0}) for p in profiles.values()}
+    ko_data = {p['ds_name']: p.get('knockout_factor', {'factor': 1.0}) for p in profiles.values()}
+
+    # v8.0: Track last match dates for rest day calculation
+    last_match_date = {}  # ds_name -> date of last match in this tournament
+
     for rnd in rounds:
         if not quiet:
             print(f"\n--- {rnd} ---")
@@ -745,27 +1104,63 @@ def simulate_tournament(fixtures, df, strengths, elo_ratings, global_avg, profil
 
         for t1d, t2d in cur:
             ds1, ds2 = ds(t1d), ds(t2d)
-            h2h = compute_h2h(df, ds1, ds2)
+            h2h = compute_h2h(df, ds1, ds2, target_date)
             key = frozenset([t1d, t2d])
             live = live_scores.get(key)
+
+            # v8.0: Calculate rest days since last match in this tournament
+            rest1 = (target_date - last_match_date[ds1]).days if ds1 in last_match_date else None
+            rest2 = (target_date - last_match_date[ds2]).days if ds2 in last_match_date else None
+
+            mom1 = momentum_data.get(ds1, {'multiplier': 1.0})
+            mom2 = momentum_data.get(ds2, {'multiplier': 1.0})
+            kof1 = ko_data.get(ds1, {'factor': 1.0})
+            kof2 = ko_data.get(ds2, {'factor': 1.0})
+
+            # v8.0: Get kickoff date if available in live scores
+            match_kickoff = live.get('kickoff') if live else None
 
             if live and live['finished']:
                 # Use real score
                 real_home = live['home_score'] if live['home']==t1d else live['away_score']
                 real_away = live['away_score'] if live['home']==t1d else live['home_score']
-                if real_home > real_away: winner = t1d
-                elif real_home < real_away: winner = t2d
-                else: winner = t1d if ds1 > ds2 else t2d  # tiebreak by elo
+                t1_pen = live.get('home_pen') if live['home']==t1d else live.get('away_pen')
+                t2_pen = live.get('away_pen') if live['home']==t1d else live.get('home_pen')
+
+                if real_home > real_away: 
+                    winner = t1d
+                    real_str = f"{real_home}-{real_away}"
+                elif real_home < real_away: 
+                    winner = t2d
+                    real_str = f"{real_home}-{real_away}"
+                else: 
+                    if t1_pen is not None and t2_pen is not None:
+                        if t1_pen > t2_pen:
+                            winner = t1d
+                            real_str = f"{real_home}-{real_away} ({t1d} wins on Pens)"
+                        elif t2_pen > t1_pen:
+                            winner = t2d
+                            real_str = f"{real_home}-{real_away} ({t2d} wins on Pens)"
+                        else:
+                            winner = t1d if elo_ratings.get(ds1,0) > elo_ratings.get(ds2,0) else t2d
+                            real_str = f"{real_home}-{real_away}"
+                    else:
+                        winner = t1d if elo_ratings.get(ds1,0) > elo_ratings.get(ds2,0) else t2d
+                        real_str = f"{real_home}-{real_away}"
+
                 # Also compute prediction for reference
-                sim = simulate_match(ds1, ds2, t1d, t2d, strengths, elo_ratings, global_avg, form_scores, h2h)
+                sim = simulate_match(ds1, ds2, t1d, t2d, strengths, elo_ratings, global_avg, form_scores,
+                                     h2h, mom1, mom2, kof1, kof2, rest1, rest2, target_date)
                 match = {
                     'team1': t1d, 'team2': t2d, 'round': rnd,
                     'match_id': f"{t1d.replace(' ','-')}-vs-{t2d.replace(' ','-')}",
-                    'real_score': f"{real_home}-{real_away}",
+                    'real_score': real_str,
                     'real_winner': winner,
                     'predicted_score': sim['predicted_score'],
+                    'predicted_winner': sim['winner'],
                     'winner': winner,  # knockout uses real result
                     'is_played': True,
+                    'kickoff': match_kickoff,
                     **{k:v for k,v in sim.items() if k not in ('predicted_score','winner')},
                     'h2h': h2h,
                     't1_profile': profiles.get(t1d,{}),
@@ -775,13 +1170,15 @@ def simulate_tournament(fixtures, df, strengths, elo_ratings, global_avg, profil
                     print(f"  {t1d} [{real_home}-{real_away}] {t2d}  (PLAYED) Winner: {winner}")
             else:
                 # Predict
-                sim = simulate_match(ds1, ds2, t1d, t2d, strengths, elo_ratings, global_avg, form_scores, h2h)
+                sim = simulate_match(ds1, ds2, t1d, t2d, strengths, elo_ratings, global_avg, form_scores,
+                                     h2h, mom1, mom2, kof1, kof2, rest1, rest2, target_date)
                 match = {
                     'team1': t1d, 'team2': t2d, 'round': rnd,
                     'match_id': f"{t1d.replace(' ','-')}-vs-{t2d.replace(' ','-')}",
                     'real_score': None,
                     'real_winner': None,
                     'is_played': False,
+                    'kickoff': match_kickoff,
                     **sim,
                     'h2h': h2h,
                     't1_profile': profiles.get(t1d,{}),
@@ -790,6 +1187,10 @@ def simulate_tournament(fixtures, df, strengths, elo_ratings, global_avg, profil
                 if not quiet:
                     print(f"  {t1d} {sim['predicted_score']} {t2d}  ->  {sim['winner']}  ({sim['prob_t1_win']}% / {sim['prob_t2_win']}%)")
                 winner = sim['winner']
+
+            # v8.0: Update last match date for rest tracking
+            last_match_date[ds1] = target_date
+            last_match_date[ds2] = target_date
 
             round_matches.append(match)
             winners.append(winner)
@@ -897,7 +1298,7 @@ if __name__ == "__main__":
             'data_source_hist':  'martj42/international_results',
             'data_source_live':  'worldcup26.ir',
             'hist_last_date':    df['date'].max().strftime('%Y-%m-%d'),
-            'model':             'Elo + Time-Weighted Poisson + Dixon-Coles Correction + H2H Boost',
+            'model':             'v8.0: NegBinom + Dixon-Coles + Opp-Quality + Momentum + KO Pressure + Venue/Travel + Fatigue',
             'half_life_days':    HALF_LIFE_DAYS,
             'goal_inflate':      GOAL_INFLATE,
             'live_scores_used':  len(live_scores) > 0,

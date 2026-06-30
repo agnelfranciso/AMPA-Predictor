@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Accuracy - World Cup 2026</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #fff; margin: 0; color: #111; }
+    header { background: #1a3a5c; color: #fff; padding: 16px 24px; }
+    header h1 { margin: 0; font-size: 1.35rem; font-weight: 700; }
+    nav { background: #f0f4f8; padding: 7px 24px; border-bottom: 1px solid #ccc; font-size: 0.88rem; }
+    nav a { color: #1a3a5c; text-decoration: none; font-weight: 500; }
+    nav .sep { color: #aaa; margin: 0 8px; }
+    main { padding: 24px; max-width: 1000px; margin: 0 auto; }
+    .stat-box { display: inline-block; background: #f7f9fc; border: 1px solid #dde3ea; padding: 20px; border-radius: 6px; text-align: center; margin-right: 15px; margin-bottom: 20px; min-width: 150px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .stat-box .num { font-size: 2.5rem; font-weight: 800; color: #1a3a5c; }
+    .stat-box .label { font-size: 0.9rem; color: #555; margin-top: 5px; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9rem; }
+    th, td { padding: 10px; border: 1px solid #dde3ea; text-align: left; }
+    th { background: #1a3a5c; color: white; }
+    tr:nth-child(even) { background: #f9f9f9; }
+    .badge-w { background: #d4edda; color: #155724; padding: 3px 8px; border-radius: 3px; font-weight: bold; font-size: 0.75rem; }
+    .badge-l { background: #f8d7da; color: #721c24; padding: 3px 8px; border-radius: 3px; font-weight: bold; font-size: 0.75rem; }
+    a { color: #1a3a5c; text-decoration: none; } a:hover { text-decoration: underline; }
+    .run-select-bar { background: #fff8e1; padding: 10px 24px; border-bottom: 1px solid #e0d4b0; font-size: 0.9rem; color: #5c4d1a; }
+    .run-select-bar select { margin-left: 8px; margin-right: 15px; padding: 3px 6px; }
+  </style>
+</head>
+<body>
+<!-- Load correct data file based on ?run= URL param -->
+<script>
+(function(){
+  var run = new URLSearchParams(window.location.search).get('run');
+  var src = run ? ('../data/outputs/data_'+run+'.js') : ('../data/data.js?t=' + Date.now());
+  document.write('<scr'+'ipt src="'+src+'"><\/scr'+'ipt>');
+  document.write('<scr'+'ipt src="../data/runs_index.js"><\/scr'+'ipt>');
+})();
+</script>
+<script>
+var FLAGS = {
+  "Algeria":"../output/algeria.png","Argentina":"../output/argentina.png","Australia":"../output/australia.png",
+  "Austria":"../output/austria.png","Belgium":"../output/belgium.png","Bosnia and Herzegovina":"../output/bosnia_and_herzegovina.png",
+  "Brazil":"../output/brazil.png","Cabo Verde":"../output/cape_verde.png","Canada":"../output/canada.png",
+  "Colombia":"../output/colombia.png","Congo DR":"../output/democratic_republic_of_the_congo.png","Côte d'Ivoire":"../output/ivory_coast.png",
+  "Croatia":"../output/croatia.png","Ecuador":"../output/ecuador.png","Egypt":"../output/egypt.png",
+  "England":"../output/england.png","France":"../output/france.png","Germany":"../output/germany.png",
+  "Ghana":"../output/ghana.png","Japan":"../output/japan.png","Mexico":"../output/mexico.png",
+  "Morocco":"../output/morocco.png","Netherlands":"../output/netherlands.png","Norway":"../output/norway.png",
+  "Paraguay":"../output/paraguay.png","Portugal":"../output/portugal.png","Senegal":"../output/senegal.png",
+  "South Africa":"../output/south_africa.png","Spain":"../output/spain.png","Sweden":"../output/sweden.png",
+  "Switzerland":"../output/switzerland.png","USA":"../output/united_states.png"
+};
+function flag(n,s){var src=FLAGS[n];if(!src)return '';return '<img src="'+src+'" height="'+(s||18)+'" class="flag" alt="'+n+'" style="vertical-align: middle; margin-right: 4px;">';}
+function tl(n){return '<a href="team.html?name='+encodeURIComponent(n)+'&run='+(new URLSearchParams(window.location.search).get('run')||'')+'">'+flag(n)+n+'</a>';}
+
+function renderRunSelector() {
+  var runs = (typeof RUNS_INDEX !== 'undefined') ? RUNS_INDEX : [];
+  if (!runs.length) return '';
+  var cur = new URLSearchParams(window.location.search).get('run') || '';
+  var opts = '<option value="">Latest</option>';
+  runs.forEach(function(r){
+    var sel = r.timestamp===cur?' selected':'';
+    opts += '<option value="'+r.timestamp+'"'+sel+'>'+r.generated_at+' — '+r.champion+(r.live_scores_used?' [Live]':' [Pred]')+'</option>';
+  });
+  return '<div class="run-select-bar"><label>View Run:</label><select onchange="window.location.search=\'?run=\'+this.value">'+opts+'</select> <a href="runs.html">All Runs &raquo;</a></div>';
+}
+
+  if (typeof PREDICTOR_DATA === 'undefined') {
+    document.write('<p>Data missing.</p>');
+  } else {
+    var D = PREDICTOR_DATA;
+    var curRun = new URLSearchParams(window.location.search).get('run')||'';
+    
+    document.write('<header><h1>AMPI Prediction Accuracy</h1><p>Powered by AMPE v7.0 (Data up to ' + D.meta.hist_last_date + ')</p></header>');
+    document.write('<nav><a href="index.html'+(curRun?'?run='+curRun:'')+'">Home</a><span class="sep">|</span><a href="bracket.html'+(curRun?'?run='+curRun:'')+'">Full Bracket</a><span class="sep">|</span><a href="teams.html'+(curRun?'?run='+curRun:'')+'">All Teams</a><span class="sep">|</span><a href="runs.html">Past Runs</a><span class="sep">|</span><a href="accuracy.html'+(curRun?'?run='+curRun:'')+'">Accuracy</a></nav>');
+    document.write(renderRunSelector());
+    document.write('<main>');
+
+    var playedMatches = [];
+    D.rounds.forEach(function(r) {
+      r.matches.forEach(function(m) {
+        if (m.is_played) playedMatches.push(m);
+      });
+    });
+
+    var total = playedMatches.length;
+    var correctWinners = 0;
+    var correctScores = 0;
+
+    playedMatches.forEach(function(m) {
+      var predScoreNum = (m.predicted_score.split(' ')[0]).trim(); 
+      var realScoreNum = (m.real_score.split(' ')[0]).trim(); 
+      var predWinner = m.predicted_winner;
+      if (!predWinner) {
+        var ps = predScoreNum.split('-');
+        if (parseInt(ps[0]) > parseInt(ps[1])) predWinner = m.team1;
+        else if (parseInt(ps[0]) < parseInt(ps[1])) predWinner = m.team2;
+        else if (m.predicted_score.indexOf('wins on Pens') !== -1) {
+          var matchPens = m.predicted_score.match(/\((.*?) wins on Pens\)/);
+          if (matchPens) predWinner = matchPens[1];
+        }
+        if (!predWinner) predWinner = 'Draw';
+      }
+      var realWinner = m.real_winner || m.winner; 
+      
+      var isWinnerRight = (predWinner === realWinner);
+      var isScoreRight = (predScoreNum === realScoreNum);
+
+      m._isWinnerRight = isWinnerRight;
+      m._isScoreRight = isScoreRight;
+      m._predWinner = predWinner;
+      m._realWinner = realWinner;
+      m._predScoreNum = predScoreNum;
+      m._realScoreNum = realScoreNum;
+
+      if (isWinnerRight) correctWinners++;
+      if (isScoreRight) correctScores++;
+    });
+
+    var winPct = total > 0 ? Math.round((correctWinners / total) * 100) : 0;
+    var scorePct = total > 0 ? Math.round((correctScores / total) * 100) : 0;
+
+    document.write('<div class="stat-box"><div class="num">'+total+'</div><div class="label">Matches Played</div></div>');
+    document.write('<div class="stat-box"><div class="num">'+correctWinners+' <span style="font-size:1.2rem;color:#777">('+winPct+'%)</span></div><div class="label">Correct Winners</div></div>');
+    document.write('<div class="stat-box"><div class="num">'+correctScores+' <span style="font-size:1.2rem;color:#777">('+scorePct+'%)</span></div><div class="label">Correct Scores</div></div>');
+
+    document.write('<h2 style="color:#1a3a5c; border-bottom: 2px solid #1a3a5c; padding-bottom: 5px; margin-top: 30px;">Match Breakdown</h2>');
+    if (total === 0) {
+      document.write('<p>No matches have been played yet.</p>');
+    } else {
+      document.write('<table>');
+      document.write('<tr><th>Match</th><th>Real Result</th><th>Prediction</th><th>Winner Acc</th><th>Score Acc</th></tr>');
+      playedMatches.forEach(function(m) {
+        document.write('<tr>');
+        document.write('<td><div style="font-size:1.05rem;font-weight:bold;"><a href="match.html?id='+m.match_id+(curRun?'&run='+curRun:'')+'">'+flag(m.team1,16)+' '+m.team1+' vs '+flag(m.team2,16)+' '+m.team2+'</a></div><div style="font-size:0.75rem;color:#666;margin-top:2px;">'+m.round+'</div></td>');
+        document.write('<td><span style="font-size:1.1rem;font-weight:bold;">'+m.real_score+'</span><br><span style="color:#555;font-size:0.8rem">Winner: '+flag(m._realWinner,14)+' '+m._realWinner+'</span></td>');
+        document.write('<td><span style="font-size:1.1rem;font-weight:bold;">'+m.predicted_score+'</span><br><span style="color:#555;font-size:0.8rem">Winner: '+flag(m._predWinner,14)+' '+m._predWinner+'</span></td>');
+        document.write('<td>'+(m._isWinnerRight ? '<span class="badge-w">Correct</span>' : '<span class="badge-l">Wrong</span>')+'</td>');
+        document.write('<td>'+(m._isScoreRight ? '<span class="badge-w">Correct</span>' : '<span class="badge-l">Wrong</span>')+'</td>');
+        document.write('</tr>');
+      });
+      document.write('</table>');
+    }
+    document.write('</main>');
+  }
+</script>
+</body>
+</html>

@@ -43,7 +43,7 @@
 <script>
 (function(){
   var run = new URLSearchParams(window.location.search).get('run');
-  var src = run ? ('../data/outputs/data_'+run+'.js') : '../data/data.js';
+  var src = run ? ('../data/outputs/data_'+run+'.js') : ('../data/data.js?t=' + Date.now());
   document.write('<scr'+'ipt src="'+src+'"><\/scr'+'ipt>');
   document.write('<scr'+'ipt src="../data/runs_index.js"><\/scr'+'ipt>');
 })();
@@ -79,7 +79,7 @@ if (typeof PREDICTOR_DATA === 'undefined') {
 } else {
   var D = PREDICTOR_DATA;
   document.write('<header><h1>AMPI Bracket &mdash; Ro32 to Final</h1><p>Predicted Champion: '+D.meta.champion+'</p></header>');
-  document.write('<nav><a href="index.html'+(curRun?'?run='+curRun:'')+'">Home</a><span class="sep">|</span><a href="bracket.html">Full Bracket</a><span class="sep">|</span><a href="teams.html'+(curRun?'?run='+curRun:'')+'">All Teams</a><span class="sep">|</span><a href="runs.html">Past Runs</a></nav>');
+  document.write('<nav><a href="index.html'+(curRun?'?run='+curRun:'')+'">Home</a><span class="sep">|</span><a href="bracket.html">Full Bracket</a><span class="sep">|</span><a href="teams.html'+(curRun?'?run='+curRun:'')+'">All Teams</a><span class="sep">|</span><a href="runs.html">Past Runs</a><span class="sep">|</span><a href="accuracy.html'+(typeof curRun!=='undefined'&&curRun?'?run='+curRun:'')+'">Accuracy</a></nav>');
   document.write(renderRunSelector());
   document.write('<main>');
   document.write('<div class="champ-box"><div class="lbl">Predicted World Champion</div><div class="nm">'+flag(D.meta.champion,28)+D.meta.champion+'</div></div>');

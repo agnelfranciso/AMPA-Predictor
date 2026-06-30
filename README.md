@@ -48,9 +48,10 @@ This project is divided into two distinct, strictly separated architectures:
 ## Features
 
 - **End-to-End Simulation**: Predicts the entire tournament from the Round of 32 to the Final.
-- **Live Data Integration**: Fetches real-time, in-progress World Cup 2026 scores. If a match is finished, the real score overwrites the prediction, and the bracket updates dynamically!
+- **Live Data Integration**: Fetches real-time, in-progress World Cup 2026 scores. If a match is finished, the real score/outcome (including penalty shootouts) overwrites the prediction, and the bracket updates dynamically!
 - **Historical Snapshots**: Every run of the engine is saved. You can instantly jump back to past predictions to see how the model's expectations changed as the tournament progressed.
-- **Deep Match Analysis**: View head-to-head records, Expected Goals (xG), and exact scoreline probabilities (e.g., a 12% chance of a 2-1 victory).
+- **Deep Match Analysis**: View head-to-head records (with time decay), Expected Goals (xG), and exact scoreline probabilities.
+- **Outdated Data Warning**: The Web UI automatically alerts you with a warning banner if a scheduled match kickoff time has passed (+3 hours match time) and the local data hasn't been updated yet.
 - **Automated Dependency Management**: A completely seamless Windows batch interface (`ampe.bat`) handles virtual environments, dependencies, and execution automatically.
 
 ---
@@ -66,7 +67,7 @@ fifa-predictor/
 │   ├── main.py              # The core AMPE simulation script
 │   └── ampe_helper.py       # Helper script for managing prediction saves
 ├── ui/                      # Frontend HTML Interface
-│   ├── index.html           # Dashboard / Homepage
+│   ├── index.html           # Dashboard / Homepage (includes outdated check)
 │   ├── bracket.html         # Visual Tournament Tree
 │   ├── match.html           # Deep dive into a specific matchup
 │   ├── runs.html            # Archive of past predictions
@@ -112,7 +113,7 @@ You will be greeted with the master menu:
 **Step 1:** Press `1` and hit Enter. The script will automatically:
 - Create an isolated Python virtual environment (`venv/`).
 - Install all heavy scientific dependencies (`pandas`, `numpy`, `scipy`).
-- Fetch over 40,000 matches, compute the math, and save the data.
+- Fetch over 49,000 matches, compute the math, and save the data.
 
 **Step 2:** Once completed, press `2` and hit Enter. Your default browser will instantly open the beautiful AMPI dashboard!
 
@@ -120,31 +121,34 @@ You will be greeted with the master menu:
 
 ## The Statistical Model (Deep Dive)
 
-AMPA isn't just a random number generator. It utilizes industry-standard statistical modelling used by professional sports analysts.
+AMPA utilizes industry-standard statistical modelling used by professional sports analysts.
 
 ### 1. Custom Elo Rating System
 At the heart of the engine is a custom Elo algorithm. Starting from a base rating, every time two teams play, points are exchanged.
 - **Goal Difference Multiplier**: Winning 4-0 yields significantly more points than winning 1-0.
 - **Tournament Weighting**: Friendlies have a very low weight. World Cup matches have the highest weight. Beating France in a World Cup Final yields massive Elo gains compared to beating them in a friendly.
 
-### 2. Time-Decaying Attack & Defense Indexes
-Elo is great for overall ranking, but it doesn't tell us *how* a team plays. AMPA computes an **Attack Index** and **Defense Index** for every team relative to the global average.
-- **Time Decay**: A goal scored in 2026 is worth 100% weight. A goal scored in 2022 is worth 50% weight. A goal scored in 2012 is worth almost nothing. This ensures the model reacts to current squad generations, not past glory.
+### 2. Opponent-Quality Adjusted Attack & Defense Indexes
+Rather than relying on raw weighted goal averages, AMPA computes an **Attack Index** and **Defense Index** that are dynamically adjusted for opponent quality:
+- **Opponent Strength Weighting**: Scoring a goal against a defensive powerhouse like France is weighted significantly higher than scoring against a defensive liability.
+- **Time Decay**: A goal scored in 2026 is worth 100% weight. A goal scored in 2022 is worth 50% weight. This ensures the model reacts to current squad generations, not past glory.
 
-### 3. Bivariate Poisson Distribution (The Simulator)
-When Team A plays Team B, AMPA calculates:
-- `Team A xG` = (Team A Attack Index) × (Team B Defense Index) × (Global Average Goals)
-- `Team B xG` = (Team B Attack Index) × (Team A Defense Index) × (Global Average Goals)
+### 3. Negative Binomial Distribution (The Simulator)
+To resolve the classical overdispersion problem in football goal modeling (where the variance of goals is greater than the mean, resulting in more draws and heavy scorelines than standard models predict), AMPA uses a **Negative Binomial Distribution** (replacing the basic Poisson model):
+- **Dixon-Coles Correction**: A low-score correction factor is applied to discourage 0-0 inflation and balance 1-0/0-1 predictions.
+- **Bivariate Urgency**: When both teams score, a custom correlation factor is applied to reflect open, aggressive play styles, resulting in highly realistic match outcomes.
+- **Clean Outcome Types**: Predicted scorelines reflect the 90-minute score, while extra-time results (e.g. `(Belgium wins in ET)`) or penalty shootouts (e.g. `(Morocco wins on Pens)`) are calculated and appended clearly as text.
 
-However, football goals are not entirely independent (if Team A scores 3, Team B is likely pushing higher up the pitch, increasing their chance of scoring). AMPA uses a **Bivariate Urgency** correlation factor. This slightly increases the probability of draws (1-1, 2-2) and reduces the likelihood of stale, independent 1-0 scorelines, resulting in highly realistic match outcomes.
+### 4. Form, Streaks & Momentum
+- **Form Score**: The engine looks at a team's last 10 matches, weighting the most recent matches exponentially higher.
+- **Momentum Engine**: Scan the last 15 matches to trigger momentum multipliers: win streaks (4+ games), unbeaten streaks (8+ games), scoring streaks (consecutive 2+ goal games), and losing streaks (3+ losses).
+- **Recent H2H Nudge**: If two teams have faced each other within the last 180 days (e.g., in the Group Stage), the winner of that recent matchup receives a substantial confidence boost, which decays over a 60-day half-life.
 
-### 4. Form Score & Tournament Pedigree
-- **Form**: The engine looks at a team's last 5-10 matches. A high win-rate yields a percentage boost (momentum).
-- **Pedigree**: Teams with a historical track record of winning major tournament knockout games (e.g., Argentina, France, Germany) receive a slight "clutch" factor boost, representing their experience under pressure.
-
-### 5. Dynamic Host Advantage & Anchor Weights
-- **Home Turf**: The 2026 hosts (USA, Canada, Mexico) receive a mathematically calculated 15% Elo boost. Other CONCACAF teams receive a minor 5% regional familiarity boost.
-- **Anchoring**: To prevent statistical anomalies (e.g., a small nation farming Elo points against other small nations), the engine fetches the live **Official FIFA World Rankings**. This acts as a soft anchor, ensuring the model's Composite Rating stays grounded in reality.
+### 5. Tournament Pressure, Fatigue & Venue Factors
+- **Knockout Stage Pressure**: Teams with a strong historical track record in major tournament knockout-stage matches (e.g., Argentina, France) receive a slight edge.
+- **Fatigue & Rest Days**: During tournament simulation, the engine calculates the rest days since each team's last match. Teams with fewer rest days receive a performance penalty.
+- **Venue & Travel Factor**: Hosts (USA, Canada, Mexico) receive a major home advantage boost. Other teams receive travel modifiers based on their continental confederation (e.g. CONCACAF/CONMEBOL teams receive a slight familiarity boost, while AFC/CAF teams receive a minor travel penalty).
+- **FIFA Ranking Anchor**: The engine fetches official FIFA World Rankings as a soft anchor to ensure the Composite Rating remains grounded in reality.
 
 ---
 

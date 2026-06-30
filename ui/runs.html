@@ -54,7 +54,7 @@ var FLAGS = {
 function flag(n,s){var src=FLAGS[n];if(!src)return '';return '<img src="'+src+'" height="'+(s||18)+'" class="flag" alt="'+n+'">';}
 
 document.write('<header><h1>Past Analysis Runs</h1><p>Each run is a full snapshot of the tournament prediction at that point in time</p></header>');
-document.write('<nav><a href="index.html">Home</a><span style="color:#aaa">|</span><a href="bracket.html">Full Bracket</a><span style="color:#aaa">|</span><a href="teams.html">All Teams</a><span style="color:#aaa">|</span><a href="runs.html">Past Runs</a></nav>');
+document.write('<nav><a href="index.html">Home</a><span style="color:#aaa">|</span><a href="bracket.html">Full Bracket</a><span style="color:#aaa">|</span><a href="teams.html">All Teams</a><span style="color:#aaa">|</span><a href="runs.html">Past Runs</a><span style="color:#aaa">|</span><a href="accuracy.html'+(typeof curRun!=='undefined'&&curRun?'?run='+curRun:'')+'">Accuracy</a></nav>');
 document.write('<main>');
 
 if (typeof RUNS_INDEX === 'undefined' || !RUNS_INDEX.length) {

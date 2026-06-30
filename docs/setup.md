@@ -74,15 +74,16 @@ Search for the `compute_elo()` function. You will find a dictionary or condition
 - To make friendlies matter even less, reduce the friendly weight from `20` to `5`.
 - To make the World Cup highly volatile, increase the World Cup weight from `60` to `100`.
 
-### 3.2 Altering the Time-Decay Curve
-Search for the `compute_strengths()` function. The variable `decay_rate` (λ) defines the half-life of historical goals.
-- Increasing the decay rate will make the engine extremely short-sighted (only caring about matches played in the last 6 months).
-- Decreasing the decay rate will make the engine care about matches played 10 years ago.
+### 3.2 Altering the Time-Decay and Model Constants
+Search for the constants block at the top of `engine/main.py`.
+- **`HALF_LIFE_DAYS`**: Controls the goal decay rate (default: `180` days). Lowering this makes the engine extremely short-sighted (caring only about the last few months).
+- **`NBINOM_R`**: Controls the Negative Binomial dispersion parameter (default: `5.0`). Lowering this increases the variance ("fatter tails"), predicting more extreme blowouts and draws.
+- **`GOAL_INFLATE`**: Scaling factor (default: `1.25`) that adjusts predicted match goal rates up to realistic international levels.
 
-### 3.3 Hacking the Host Advantage
-Search for the `simulate_match()` function. You will see a block of code checking if a team is in `["USA", "Mexico", "Canada"]`.
-- The default Elo multiplier is `1.15` (a 15% boost).
-- You can change this to `1.0` to completely disable Host Advantage and simulate a neutral-site tournament.
+### 3.3 Hacking the Venue & Travel Factor
+Search for the `compute_venue_factor()` function.
+- It dynamically assigns modifiers based on team confederation (e.g. `1.12` for local hosts, `1.05` for CONCACAF, down to `0.96` for AFC teams representing long-distance travel fatigue).
+- You can override these modifiers or set them all to `1.0` to completely simulate the tournament on completely neutral soil.
 
 ---
 
