@@ -107,7 +107,7 @@ LIVE_API_NAME_MAP = {
     "Mexico":                ["Mexico"],
     "Ecuador":               ["Ecuador"],
     "England":               ["England"],
-    "Congo DR":              ["DR Congo","Congo DR","Congo-Kinshasa","Democratic Republic of Congo"],
+    "Congo DR":              ["DR Congo","Congo DR","Congo-Kinshasa","Democratic Republic of Congo","Democratic Republic of the Congo"],
     "Belgium":               ["Belgium"],
     "Senegal":               ["Senegal"],
     "USA":                   ["USA","United States","US"],
