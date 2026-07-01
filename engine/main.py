@@ -1014,11 +1014,11 @@ def simulate_match(ds1, ds2, disp1, disp2, strengths, elo_ratings, global_avg, f
         
         if et_l1 > et_l2 + 0.15:
             winner = disp1
-            score_str = f"{ms1}-{ms2} ({winner} wins in ET)"
+            score_str = f"{ms1+1}-{ms2} ({winner} wins in ET)"
             outcome = "Extra Time"
         elif et_l2 > et_l1 + 0.15:
             winner = disp2
-            score_str = f"{ms1}-{ms2} ({winner} wins in ET)"
+            score_str = f"{ms1}-{ms2+1} ({winner} wins in ET)"
             outcome = "Extra Time"
         else:
             pen_edge1 = p1w * kof1
