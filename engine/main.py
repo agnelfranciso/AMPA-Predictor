@@ -132,24 +132,44 @@ def ds(name):
 def dn(ds_name):
     return REVERSE_MAP.get(ds_name, ds_name)
 
+def map_team_name(name):
+    if not name or name == '0':
+        return None
+    for display, variants in LIVE_API_NAME_MAP.items():
+        if any(v.lower() in name.lower() or name.lower() in v.lower() for v in variants):
+            return display
+    return name
+
 # ============================================================
-#  LIVE SCORES from worldcup26.ir
+#  LIVE SCHEDULE & SCORES from worldcup26.ir
 # ============================================================
-def fetch_live_scores():
-    """Fetch live/finished match results from worldcup26.ir API.
+def fetch_wc2026_games():
+    """Fetch the full list of matches from the API or fallback to local api.json."""
+    print("Fetching WC2026 match schedule from worldcup26.ir...")
+    try:
+        resp = requests.get(LIVE_API_URL, timeout=12)
+        if resp.status_code == 200:
+            raw = resp.json()
+            games = raw if isinstance(raw, list) else raw.get('games', raw.get('data', []))
+            return games
+    except Exception as e:
+        print(f"  Error fetching match schedule: {e}")
+    
+    print("  Falling back to local api.json...")
+    try:
+        with open('api.json', 'r', encoding='utf-8') as f:
+            raw = json.load(f)
+            games = raw if isinstance(raw, list) else raw.get('games', raw.get('data', []))
+            return games
+    except Exception as e:
+        print(f"  Error reading local api.json: {e}")
+    return []
+
+def fetch_live_scores(games):
+    """Fetch live/finished match results from pre-loaded games list.
     Returns a dict keyed by frozenset of team display names -> {score, status, home, away}
     """
-    print("Fetching live WC2026 scores from worldcup26.ir...")
-    try:
-        resp = requests.get(LIVE_API_URL, timeout=10)
-        if resp.status_code != 200:
-            print(f"  API returned status {resp.status_code}, skipping live scores")
-            return {}
-        data = resp.json()
-        games = data if isinstance(data, list) else data.get('data', data.get('games', data.get('matches', [])))
-    except Exception as e:
-        print(f"  Could not fetch live scores: {e}")
-        return {}
+    print("Parsing live WC2026 scores...")
 
     live_scores = {}
     count = 0
@@ -294,21 +314,10 @@ WC26_TO_MARTJ42 = {
     "Argentina":                       "Argentina",
 }
 
-def fetch_wc2026_history():
-    """Fetch all FINISHED WC2026 group stage matches from worldcup26.ir
+def fetch_wc2026_history(games):
+    """Filter all FINISHED WC2026 group stage matches from games
     and return a DataFrame compatible with the martj42 dataset."""
-    print("Fetching WC2026 completed matches from worldcup26.ir for training data...")
-    try:
-        resp = requests.get(LIVE_API_URL, timeout=12)
-        if resp.status_code != 200:
-            print(f"  API returned {resp.status_code}, skipping WC2026 history injection")
-            return None
-        raw = resp.json()
-        games = raw if isinstance(raw, list) else raw.get('games', raw.get('data', []))
-    except Exception as e:
-        print(f"  Could not fetch WC2026 history: {e}")
-        return None
-
+    print("Processing WC2026 completed matches for training data...")
     rows = []
     for g in games:
         if str(g.get('finished', '')).upper() != 'TRUE':
@@ -347,7 +356,7 @@ def fetch_wc2026_history():
     return df_wc
 
 
-def load_data():
+def load_data(games=None):
     print("Downloading historical match data (martj42 dataset)...")
     resp = requests.get(HIST_URL, timeout=30)
     df = pd.read_csv(io.StringIO(resp.text))
@@ -360,7 +369,9 @@ def load_data():
     print(f"  Dataset last updated: {hist_last.strftime('%Y-%m-%d')}")
 
     # Inject WC2026 live match results (fills gap after martj42 cutoff)
-    df_wc = fetch_wc2026_history()
+    if games is None:
+        games = fetch_wc2026_games()
+    df_wc = fetch_wc2026_history(games)
     if df_wc is not None:
         # Remove any WC2026 matches already in martj42 to avoid duplicates
         wc_cutoff = df_wc['date'].min()
@@ -1080,35 +1091,112 @@ def build_profile(display, df, strengths, elo_ratings, target_date, fifa_ranking
         'weaknesses':  W,
     }
 
-# ============================================================
-#  TOURNAMENT SIMULATION
-# ============================================================
-def simulate_tournament(fixtures, df, strengths, elo_ratings, global_avg, profiles, live_scores, target_date, quiet=False):
-    rounds = ["Round of 32","Round of 16","Quarter-finals","Semi-finals","Final"]
-    cur = fixtures
-    all_rounds = []
-    form_scores = {p['ds_name']: p['form_score'] for p in profiles.values()}
+def simulate_tournament(games, df, strengths, elo_ratings, global_avg, profiles, live_scores, target_date, quiet=False):
+    round_types = ['r32', 'r16', 'qf', 'sf', 'final']
+    round_name_map = {
+        'r32': "Round of 32",
+        'r16': "Round of 16",
+        'qf': "Quarter-finals",
+        'sf': "Semi-finals",
+        'final': "Final"
+    }
 
-    # v8.0: Pre-compute momentum and knockout factors for all teams
+    form_scores = {p['ds_name']: p['form_score'] for p in profiles.values()}
     momentum_data = {p['ds_name']: p.get('momentum', {'multiplier': 1.0}) for p in profiles.values()}
     ko_data = {p['ds_name']: p.get('knockout_factor', {'factor': 1.0}) for p in profiles.values()}
-
-    # v8.0: Track last match dates for rest day calculation
     last_match_date = {}  # ds_name -> date of last match in this tournament
 
-    for rnd in rounds:
+    ko_games = {}
+    for g in games:
+        gtype = g.get('type', '')
+        if gtype not in round_types:
+            continue
+        gid = str(g.get('id', ''))
+        if not gid:
+            continue
+
+        status = (g.get('status') or g.get('matchStatus') or g.get('time_elapsed') or str(g.get('finished'))).upper()
+        if status == 'TRUE': status = 'FINISHED'
+        is_finished = any(w in status for w in ['FINISH','COMPLET','ENDED','FULL','FT'])
+        
+        hs = g.get('homeScore') or g.get('home_score') or g.get('homeGoals') or g.get('score', {}).get('home', None)
+        as_ = g.get('awayScore') or g.get('away_score') or g.get('awayGoals') or g.get('score', {}).get('away', None)
+        score_available = (hs not in [None, 'null', 'NULL', ''] and as_ not in [None, 'null', 'NULL', ''])
+
+        try:
+            hs_int = int(hs) if score_available else None
+            as_int = int(as_) if score_available else None
+        except (ValueError, TypeError):
+            hs_int = None
+            as_int = None
+            score_available = False
+
+        hp = g.get('home_penalty_score')
+        ap = g.get('away_penalty_score')
+        hp_int = None
+        ap_int = None
+        if hp not in [None, 'null', 'NULL', '']:
+            try: hp_int = int(hp)
+            except ValueError: pass
+        if ap not in [None, 'null', 'NULL', '']:
+            try: ap_int = int(ap)
+            except ValueError: pass
+
+        kickoff_str = g.get('local_date', '')
+        try:
+            dt = datetime.datetime.strptime(kickoff_str, "%m/%d/%Y %H:%M")
+            kickoff_iso = dt.strftime("%Y-%m-%dT%H:%M:%S")
+        except Exception:
+            kickoff_iso = kickoff_str
+
+        ko_games[gid] = {
+            'id': gid,
+            'type': gtype,
+            'home_label': g.get('home_team_label'),
+            'away_label': g.get('away_team_label'),
+            'home_team': map_team_name(g.get('home_team_name_en')),
+            'away_team': map_team_name(g.get('away_team_name_en')),
+            'finished': is_finished and score_available,
+            'home_score': hs_int,
+            'away_score': as_int,
+            'home_pen': hp_int,
+            'away_pen': ap_int,
+            'kickoff': kickoff_iso,
+            'winner': None
+        }
+
+    def resolve_team_from_label(label):
+        if not label:
+            return None
+        if label.startswith("Winner Match "):
+            prev_id = label.replace("Winner Match ", "").strip()
+            prev_match = ko_games.get(prev_id)
+            if prev_match:
+                return prev_match.get('winner')
+        return None
+
+    all_rounds = []
+    for gtype in round_types:
+        rnd_name = round_name_map[gtype]
         if not quiet:
-            print(f"\n--- {rnd} ---")
+            print(f"\n--- {rnd_name} ---")
+        
+        rnd_matches = [m for m in ko_games.values() if m['type'] == gtype]
+        rnd_matches.sort(key=lambda x: int(x['id']))
+
         round_matches = []
-        winners = []
+        for m_info in rnd_matches:
+            gid = m_info['id']
+            t1 = m_info['home_team'] or resolve_team_from_label(m_info['home_label'])
+            t2 = m_info['away_team'] or resolve_team_from_label(m_info['away_label'])
 
-        for t1d, t2d in cur:
-            ds1, ds2 = ds(t1d), ds(t2d)
+            if not t1: t1 = "TBD"
+            if not t2: t2 = "TBD"
+
+            t1d, t2d = t1, t2
+            ds1, ds2 = ds(t1), ds(t2)
+
             h2h = compute_h2h(df, ds1, ds2, target_date)
-            key = frozenset([t1d, t2d])
-            live = live_scores.get(key)
-
-            # v8.0: Calculate rest days since last match in this tournament
             rest1 = (target_date - last_match_date[ds1]).days if ds1 in last_match_date else None
             rest2 = (target_date - last_match_date[ds2]).days if ds2 in last_match_date else None
 
@@ -1117,50 +1205,45 @@ def simulate_tournament(fixtures, df, strengths, elo_ratings, global_avg, profil
             kof1 = ko_data.get(ds1, {'factor': 1.0})
             kof2 = ko_data.get(ds2, {'factor': 1.0})
 
-            # v8.0: Get kickoff date if available in live scores
-            match_kickoff = live.get('kickoff') if live else None
+            if m_info['finished']:
+                real_home = m_info['home_score']
+                real_away = m_info['away_score']
+                t1_pen = m_info['home_pen']
+                t2_pen = m_info['away_pen']
 
-            if live and live['finished']:
-                # Use real score
-                real_home = live['home_score'] if live['home']==t1d else live['away_score']
-                real_away = live['away_score'] if live['home']==t1d else live['home_score']
-                t1_pen = live.get('home_pen') if live['home']==t1d else live.get('away_pen')
-                t2_pen = live.get('away_pen') if live['home']==t1d else live.get('home_pen')
-
-                if real_home > real_away: 
-                    winner = t1d
+                if real_home > real_away:
+                    winner = t1
                     real_str = f"{real_home}-{real_away}"
-                elif real_home < real_away: 
-                    winner = t2d
+                elif real_home < real_away:
+                    winner = t2
                     real_str = f"{real_home}-{real_away}"
-                else: 
+                else:
                     if t1_pen is not None and t2_pen is not None:
                         if t1_pen > t2_pen:
-                            winner = t1d
-                            real_str = f"{real_home}-{real_away} ({t1d} wins on Pens)"
+                            winner = t1
+                            real_str = f"{real_home}-{real_away} ({t1} wins on Pens)"
                         elif t2_pen > t1_pen:
-                            winner = t2d
-                            real_str = f"{real_home}-{real_away} ({t2d} wins on Pens)"
+                            winner = t2
+                            real_str = f"{real_home}-{real_away} ({t2} wins on Pens)"
                         else:
-                            winner = t1d if elo_ratings.get(ds1,0) > elo_ratings.get(ds2,0) else t2d
+                            winner = t1 if elo_ratings.get(ds1,0) > elo_ratings.get(ds2,0) else t2
                             real_str = f"{real_home}-{real_away}"
                     else:
-                        winner = t1d if elo_ratings.get(ds1,0) > elo_ratings.get(ds2,0) else t2d
+                        winner = t1 if elo_ratings.get(ds1,0) > elo_ratings.get(ds2,0) else t2
                         real_str = f"{real_home}-{real_away}"
 
-                # Also compute prediction for reference
                 sim = simulate_match(ds1, ds2, t1d, t2d, strengths, elo_ratings, global_avg, form_scores,
                                      h2h, mom1, mom2, kof1, kof2, rest1, rest2, target_date)
                 match = {
-                    'team1': t1d, 'team2': t2d, 'round': rnd,
+                    'team1': t1d, 'team2': t2d, 'round': rnd_name,
                     'match_id': f"{t1d.replace(' ','-')}-vs-{t2d.replace(' ','-')}",
                     'real_score': real_str,
                     'real_winner': winner,
                     'predicted_score': sim['predicted_score'],
                     'predicted_winner': sim['winner'],
-                    'winner': winner,  # knockout uses real result
+                    'winner': winner,
                     'is_played': True,
-                    'kickoff': match_kickoff,
+                    'kickoff': m_info['kickoff'],
                     **{k:v for k,v in sim.items() if k not in ('predicted_score','winner')},
                     'h2h': h2h,
                     't1_profile': profiles.get(t1d,{}),
@@ -1169,16 +1252,15 @@ def simulate_tournament(fixtures, df, strengths, elo_ratings, global_avg, profil
                 if not quiet:
                     print(f"  {t1d} [{real_home}-{real_away}] {t2d}  (PLAYED) Winner: {winner}")
             else:
-                # Predict
                 sim = simulate_match(ds1, ds2, t1d, t2d, strengths, elo_ratings, global_avg, form_scores,
                                      h2h, mom1, mom2, kof1, kof2, rest1, rest2, target_date)
                 match = {
-                    'team1': t1d, 'team2': t2d, 'round': rnd,
+                    'team1': t1d, 'team2': t2d, 'round': rnd_name,
                     'match_id': f"{t1d.replace(' ','-')}-vs-{t2d.replace(' ','-')}",
                     'real_score': None,
                     'real_winner': None,
                     'is_played': False,
-                    'kickoff': match_kickoff,
+                    'kickoff': m_info['kickoff'],
                     **sim,
                     'h2h': h2h,
                     't1_profile': profiles.get(t1d,{}),
@@ -1188,20 +1270,13 @@ def simulate_tournament(fixtures, df, strengths, elo_ratings, global_avg, profil
                     print(f"  {t1d} {sim['predicted_score']} {t2d}  ->  {sim['winner']}  ({sim['prob_t1_win']}% / {sim['prob_t2_win']}%)")
                 winner = sim['winner']
 
-            # v8.0: Update last match date for rest tracking
             last_match_date[ds1] = target_date
             last_match_date[ds2] = target_date
 
+            ko_games[gid]['winner'] = winner
             round_matches.append(match)
-            winners.append(winner)
-
-        all_rounds.append({'round': rnd, 'matches': round_matches})
-
-        if rnd != "Final":
-            next_f = []
-            for i in range(0, len(winners)-1, 2):
-                next_f.append((winners[i], winners[i+1]))
-            cur = next_f
+        
+        all_rounds.append({'round': rnd_name, 'matches': round_matches})
 
     return all_rounds
 
@@ -1262,21 +1337,32 @@ if __name__ == "__main__":
 
     out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
 
+    # Fetch live tournament schedule/games (single network request)
+    games = fetch_wc2026_games()
+
     # Load data
-    df = load_data()
+    df = load_data(games)
     elo_ratings = compute_elo(df, TARGET_DATE)
     strengths, global_avg = compute_strengths(df, TARGET_DATE)
 
-    # Fetch live scores
-    live_scores = fetch_live_scores()
+    # Fetch live scores from games list
+    live_scores = fetch_live_scores(games)
     
     # Fetch FIFA Rankings
     fifa_rankings = fetch_fifa_rankings()
 
-    # Build team profiles
+    # Build team profiles dynamically from the R32 matches present in the API
     if not args.quiet:
         print("\nBuilding team profiles...")
-    all_teams = sorted(set(t for pair in fixtures_ro32 for t in pair))
+    all_teams = set()
+    for g in games:
+        if g.get('type') == 'r32':
+            t1 = map_team_name(g.get('home_team_name_en'))
+            t2 = map_team_name(g.get('away_team_name_en'))
+            if t1: all_teams.add(t1)
+            if t2: all_teams.add(t2)
+    all_teams = sorted(list(all_teams))
+
     profiles = {}
     for team in all_teams:
         profiles[team] = build_profile(team, df, strengths, elo_ratings, TARGET_DATE, fifa_rankings)
@@ -1284,8 +1370,8 @@ if __name__ == "__main__":
         if not args.quiet:
             print(f"  {team:28}  ELO:{p['elo']}  Form:{p['form_score']}%  Composite:{p['composite']}")
 
-    # Simulate tournament
-    tournament_rounds = simulate_tournament(fixtures_ro32, df, strengths, elo_ratings, global_avg, profiles, live_scores, TARGET_DATE, args.quiet)
+    # Simulate tournament dynamically from API bracket structure
+    tournament_rounds = simulate_tournament(games, df, strengths, elo_ratings, global_avg, profiles, live_scores, TARGET_DATE, args.quiet)
     champion = tournament_rounds[-1]['matches'][0]['winner']
 
     matches_played = sum(1 for r in tournament_rounds for m in r['matches'] if m.get('is_played'))
